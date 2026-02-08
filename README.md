@@ -6,7 +6,7 @@ A 2D pixel-style top-down maze adventure browser-based game built with p5.js.
 
 Torchbound is a challenging maze adventure where players must escape dark, trap-filled environments using only a torch to see their surroundings. The maze is shrouded in darkness, with only the area illuminated by the player's torch visible, creating a fog-of-war effect that forces players to rely on memory, exploration, and careful movement.
 
-The game takes place in a mysterious ancient temple (or jungle ruins). Each level presents a new maze layout, more dangerous traps, and tighter time limits. Players must balance exploration, speed, and survival to achieve the highest possible score.
+The game takes place in a mysterious and dangerous dungeon. Each level presents a new maze layout, more dangerous traps, and tighter time limits. Players must balance exploration, speed, and survival to achieve the highest possible score.
 
 ## Game Objective
 
