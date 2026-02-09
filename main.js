@@ -6,8 +6,9 @@ const MOVE_DELAY_MS = 400;
 const TRAP_DAMAGE_INTERVAL_MS = 500;
 const ZOOM = 1.5;
 const CAMERA_LERP = 0.05;
+const DARKNESS_DURATION = 5000;
 
-function generateMaze(cols, rows, trapChance = 0.05) {
+function generateMaze(cols, rows, trapChance = 0.05, powerUpChance = 0.02) {
     // 1. Force dimensions to be odd for the best results
     // If user passes 50, it becomes 49 or 51
     const W = cols % 2 === 0 ? cols - 1 : cols;
@@ -40,14 +41,15 @@ function generateMaze(cols, rows, trapChance = 0.05) {
     carve(1, 1);
 
     // Place Start (2)
-    newMaze[1][1] = 2;
+    newMaze[1][0] = 2;
 
     // Safety Exit Placement: Search from the bottom right for the first available floor
     let placedExit = false;
     for (let y = H - 2; y > 0 && !placedExit; y--) {
         for (let x = W - 2; x > 0 && !placedExit; x--) {
             if (newMaze[y][x] === 0) {
-                newMaze[y][x] = 3;
+                // Move the exit to the far right wall (W-1) at this row
+                newMaze[y][W - 1] = 3;
                 placedExit = true;
             }
         }
@@ -63,23 +65,33 @@ function generateMaze(cols, rows, trapChance = 0.05) {
         }
     }
 
+    // Sprinkle Power-ups
+    for (let y = 1; y < H - 1; y++) {
+        for (let x = 1; x < W - 1; x++) {
+            if (newMaze[y][x] === 0 && Math.random() < powerUpChance) {
+                // 2% chance for Power-Ups
+                newMaze[y][x] = Math.floor(Math.random() * 3) + 7;
+            }
+        }
+    }
+
     return newMaze;
 }
 // prettier-ignore
 const LEVELS = {
     1: { 
         name: "The Descent",
-        maze: generateMaze(25, 15, 0.03), // 3% trap density
+        maze: generateMaze(25, 15, 0.03, 0.02),
         time: 120 
     },
     2: { 
         name: "Trial of Shadows",
-        maze: generateMaze(30, 25, 0.05), // 5% trap density
+        maze: generateMaze(30, 25, 0.05, 0.05),
         time: 180 
     },
     3: { 
         name: "The Grand Labyrinth",
-        maze: generateMaze(40, 25, 0.08), // 8% trap density
+        maze: generateMaze(40, 25, 0.08, 0.03),
         time: 300 
     }
 };
@@ -91,6 +103,9 @@ const TILE_MAP = {
     fireTrap: 4,
     resetTrap: 5,
     darknessTrap: 6,
+    timePowerUp: 7,
+    torchPowerUp: 8,
+    visionPowerUp: 9,
 };
 const TRAPS = {
     4: {
@@ -116,12 +131,15 @@ const TRAPS = {
         randomized: true,
     },
 };
+const POWER_UP_DURATIONS = {
+    TORCH: 5000, // 5 seconds of extra light
+    VISION: 3000, // 3 seconds of full map reveal
+};
 const GAME_PHASE = {
     INTRO_REVEAL: 'intro_reveal',
     INTRO_PAN: 'intro_pan',
     PLAYING: 'playing',
 };
-const DARKNESS_DURATION = 5000;
 
 //#endregion
 
@@ -158,6 +176,11 @@ new p5((p) => {
     let trapTimer = 0;
     let trapDamageTimer = 0;
     let darknessEffectTimer = 0;
+
+    // Power-ups
+    let torchEffectTimer = 0;
+    let visionEffectTimer = 0;
+    let timeBonusTextTimer = 0;
     //#endregion
 
     //#region Debug Mode
@@ -285,6 +308,16 @@ new p5((p) => {
         const timeString = `${mins}:${secs.toString().padStart(2, '0')}`;
 
         p.text(`Time: ${timeString}`, 10, 30);
+
+        // Show +30s text if bonus was recently collected
+        if (timeBonusTextTimer > 0) {
+            p.push();
+            // Fade out the text as the timer reaches 0
+            let alpha = p.map(timeBonusTextTimer, 0, 2000, 0, 255);
+            p.fill(255, 255, 0, alpha); // Yellow color
+            p.text('+30s', 150, 30); // Positioned beside the timer
+            p.pop();
+        }
 
         p.textAlign(p.RIGHT, p.TOP);
         p.text(
@@ -440,6 +473,7 @@ new p5((p) => {
             trapDamageTimer -= dt;
             movePlayer();
             checkStandingOnTrap(dt);
+            checkPowerUps(dt);
             updateTimer();
         }
     }
@@ -524,15 +558,23 @@ new p5((p) => {
                 else if (tile === TILE_MAP.start) p.fill(50, 200, 50);
                 else if (tile === TILE_MAP.exit) p.fill(50, 100, 200);
                 else if (tile === TILE_MAP.floor) p.fill(20);
+                else if (tile === TILE_MAP.timePowerUp)
+                    p.fill(255, 255, 0); // Yellow
+                else if (tile === TILE_MAP.torchPowerUp)
+                    p.fill(255, 150, 0); // Orange
+                else if (tile === TILE_MAP.visionPowerUp)
+                    p.fill(0, 255, 255); // Cyan
                 // Trap Rendering
                 else if (TRAPS[tile]) {
                     const active = isTrapActive(tile, x, y);
                     if (tile === TILE_MAP.fireTrap)
+                        // Red
                         p.fill(active ? [200, 80, 50] : 60);
                     else if (tile === TILE_MAP.resetTrap)
+                        // Purple
                         p.fill(active ? [150, 0, 255] : 60);
                     else if (tile === TILE_MAP.darknessTrap)
-                        p.fill(active ? [0, 0, 0] : 60);
+                        p.fill(active ? [0, 0, 0] : 60); // Black
                 }
 
                 p.rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
@@ -653,7 +695,11 @@ new p5((p) => {
 
         if (!trap || !isTrapActive(tile, x, y)) {
             // If the timer is done, recover torch radius; otherwise, keep it shrunk
-            if (darknessEffectTimer <= 0 && torchRadius < 3) {
+            if (
+                darknessEffectTimer <= 0 &&
+                torchRadius < 3 &&
+                torchEffectTimer <= 0
+            ) {
                 torchRadius = p.lerp(torchRadius, 3, 0.05);
             }
             trapDamageTimer = 0;
@@ -676,12 +722,54 @@ new p5((p) => {
             case 'darkness':
                 // Trigger the 5-second effect
                 darknessEffectTimer = DARKNESS_DURATION;
+                torchEffectTimer = 0;
+                visionEffectTimer = 0;
                 break;
         }
 
         // Apply the effect if the timer is active
         if (darknessEffectTimer > 0) {
             torchRadius = p.lerp(torchRadius, 0.25, 0.1);
+            enableCamera = true;
+        }
+    }
+    //#endregion
+
+    //#region Power-ups
+    function checkPowerUps(dt) {
+        const x = player.gridX;
+        const y = player.gridY;
+        const tile = maze[y][x];
+
+        // Decay timers
+        if (timeBonusTextTimer > 0) timeBonusTextTimer -= dt;
+        if (torchEffectTimer > 0) torchEffectTimer -= dt;
+        if (visionEffectTimer > 0) visionEffectTimer -= dt;
+
+        // Collection logic
+        if (tile === TILE_MAP.timePowerUp) {
+            timeLeft += 30;
+            timeBonusTextTimer = 3000;
+            maze[y][x] = 0; // Consume the item
+        } else if (tile === TILE_MAP.torchPowerUp) {
+            torchEffectTimer = POWER_UP_DURATIONS.TORCH;
+            maze[y][x] = 0;
+        } else if (tile === TILE_MAP.visionPowerUp) {
+            visionEffectTimer = POWER_UP_DURATIONS.VISION;
+            maze[y][x] = 0;
+        }
+
+        // Apply Effects
+        if (visionEffectTimer > 0) {
+            enableCamera = false;
+        } else if (visionEffectTimer <= 0 && darknessEffectTimer <= 0) {
+            if (!debugMode) enableCamera = true;
+        }
+
+        if (torchEffectTimer > 0) {
+            torchRadius = p.lerp(torchRadius, 6, 0.1);
+        } else if (torchEffectTimer <= 0 && darknessEffectTimer <= 0) {
+            torchRadius = p.lerp(torchRadius, 3, 0.1);
         }
     }
     //#endregion
