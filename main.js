@@ -6,98 +6,114 @@ const MOVE_DELAY_MS = 400;
 const TRAP_DAMAGE_INTERVAL_MS = 500;
 const ZOOM = 1.5;
 const CAMERA_LERP = 0.05;
+
+function generateMaze(cols, rows, trapChance = 0.05) {
+    // 1. Force dimensions to be odd for the best results
+    // If user passes 50, it becomes 49 or 51
+    const W = cols % 2 === 0 ? cols - 1 : cols;
+    const H = rows % 2 === 0 ? rows - 1 : rows;
+
+    let newMaze = Array.from({ length: H }, () => Array(W).fill(1));
+
+    const isInside = (x, y) => x > 0 && x < W - 1 && y > 0 && y < H - 1;
+
+    function carve(x, y) {
+        newMaze[y][x] = 0;
+        let dirs = [
+            [0, -2],
+            [0, 2],
+            [-2, 0],
+            [2, 0],
+        ].sort(() => Math.random() - 0.5);
+
+        for (let [dx, dy] of dirs) {
+            let nx = x + dx,
+                ny = y + dy;
+            if (isInside(nx, ny) && newMaze[ny][nx] === 1) {
+                newMaze[y + dy / 2][x + dx / 2] = 0;
+                carve(nx, ny);
+            }
+        }
+    }
+
+    // Start carving
+    carve(1, 1);
+
+    // Place Start (2)
+    newMaze[1][1] = 2;
+
+    // Safety Exit Placement: Search from the bottom right for the first available floor
+    let placedExit = false;
+    for (let y = H - 2; y > 0 && !placedExit; y--) {
+        for (let x = W - 2; x > 0 && !placedExit; x--) {
+            if (newMaze[y][x] === 0) {
+                newMaze[y][x] = 3;
+                placedExit = true;
+            }
+        }
+    }
+
+    // Sprinkle Traps
+    for (let y = 1; y < H - 1; y++) {
+        for (let x = 1; x < W - 1; x++) {
+            // Only place traps on floors, and NOT on start/exit
+            if (newMaze[y][x] === 0 && Math.random() < trapChance) {
+                newMaze[y][x] = Math.floor(Math.random() * 3) + 4;
+            }
+        }
+    }
+
+    return newMaze;
+}
 // prettier-ignore
 const LEVELS = {
     1: { 
-        cols: 25, 
-        rows: 18,
-        maze: [
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-            [1,0,0,0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,3,0,0,0,0,1],
-            [1,0,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1],
-            [1,0,1,0,2,0,1,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,1,0,1],
-            [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,0,1,0,1],
-            [1,0,0,3,0,0,0,0,1,0,0,0,1,0,2,0,1,3,1,0,0,0,1,0,1],
-            [1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,0,1],
-            [1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,0,0,2,1,0,1],
-            [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1],
-            [4,0,1,0,0,0,0,0,3,0,0,0,1,0,0,0,0,0,0,0,1,0,1,0,5],
-            [1,0,1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,0,1],
-            [1,0,2,0,1,0,0,0,0,0,0,2,0,0,1,0,3,0,1,0,2,0,1,0,1],
-            [1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1],
-            [1,0,0,0,0,0,1,0,0,2,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-            [1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
-            [1,3,1,0,2,0,0,0,1,0,0,0,0,3,0,0,0,0,0,0,0,0,1,0,1],
-            [1,0,0,0,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,2,0,0,1],
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-
-        ],
-        time: 120
+        name: "The Descent",
+        maze: generateMaze(25, 15, 0.03), // 3% trap density
+        time: 120 
     },
     2: { 
-        cols: 50, 
-        rows: 36,
-        maze: [
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-            [4,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-            [1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
-            [1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,2,0,0,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,1,0,1],
-            [1,0,1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,1,0,1],
-            [1,0,0,0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,3,0,0,0,0,1,0,0,0,0,0,3,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1],
-            [1,0,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1,0,1,0,1,0,1],
-            [1,0,1,0,2,0,1,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,1,0,1,0,1,0,1],
-            [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,1,0,1,0,1,0,1,0,1],
-            [1,0,0,3,0,0,0,0,1,0,0,0,1,0,2,0,1,3,1,0,0,0,1,0,1,0,0,0,1,0,0,0,1,0,2,0,1,3,1,0,0,0,0,1,0,0,0,0,0,1],
-            [1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1,0,1],
-            [1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,0,0,2,1,0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,0,0,2,1,0,0,1],
-            [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,0,1],
-            [1,0,1,0,0,0,0,0,3,0,0,0,1,0,0,0,0,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,3,0,0,0,1,0,0,0,0,0,0,0,1,0,1,0,0,1],
-            [1,0,1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,1,0,1],
-            [1,0,2,0,1,0,0,0,0,0,0,2,0,0,1,0,3,0,1,0,2,0,1,0,1,0,2,0,1,0,0,0,0,0,0,2,0,0,1,0,3,0,1,0,2,0,1,0,0,1],
-            [1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,0,1],
-            [1,0,0,0,0,0,1,0,0,2,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,2,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-            [1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
-            [1,3,1,0,2,0,0,0,1,0,0,0,0,3,0,0,0,0,0,0,0,0,1,0,1,3,1,0,2,0,0,0,1,0,0,0,0,3,0,0,0,0,0,0,0,0,1,0,0,1],
-            [1,0,0,0,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,2,0,0,1,0,0,0,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,2,0,0,0,1],
-            [1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1],
-            [1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
-            [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
-            [1,2,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,0,1,2,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,0,1],
-            [1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1],
-            [1,0,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1],
-            [1,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,1],
-            [1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1,0,1],
-            [1,0,0,0,0,0,1,0,1,0,0,0,2,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,2,0,0,0,1,0,1,0,1,0,1,0,1],
-            [1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,1,0,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,0,1,0,1],
-            [1,0,1,3,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1],
-            [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
-            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5],
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-        ],
-        time: 300
+        name: "Trial of Shadows",
+        maze: generateMaze(30, 25, 0.05), // 5% trap density
+        time: 180 
     },
+    3: { 
+        name: "The Grand Labyrinth",
+        maze: generateMaze(40, 25, 0.08), // 8% trap density
+        time: 300 
+    }
 };
 const TILE_MAP = {
     floor: 0,
     wall: 1,
-    spikeTrap: 2,
-    fireTrap: 3,
-    start: 4,
-    exit: 5,
+    start: 2,
+    exit: 3,
+    fireTrap: 4,
+    resetTrap: 5,
+    darknessTrap: 6,
 };
 const TRAPS = {
-    2: {
-        name: 'spikes',
-        damage: 10,
-        activeTime: 800, // 0.8 seconds ON
-        inactiveTime: 3000, // 3 seconds OFF
-    },
-    3: {
+    4: {
         name: 'fire',
         damage: 25,
-        activeTime: 2000, // 2 second ON
-        inactiveTime: 1500, // 1.5 seconds OFF
+        activeTime: 2000,
+        inactiveTime: 1500,
+        type: 'damage',
+        randomized: true,
+    },
+    5: {
+        name: 'teleport',
+        activeTime: 1000,
+        inactiveTime: 2000,
+        type: 'reset',
+        randomized: true,
+    },
+    6: {
+        name: 'void',
+        activeTime: 1500,
+        inactiveTime: 1500,
+        type: 'darkness',
+        randomized: true,
     },
 };
 const GAME_PHASE = {
@@ -105,6 +121,7 @@ const GAME_PHASE = {
     INTRO_PAN: 'intro_pan',
     PLAYING: 'playing',
 };
+const DARKNESS_DURATION = 5000;
 
 //#endregion
 
@@ -140,6 +157,7 @@ new p5((p) => {
     // Traps
     let trapTimer = 0;
     let trapDamageTimer = 0;
+    let darknessEffectTimer = 0;
     //#endregion
 
     //#region Debug Mode
@@ -153,6 +171,8 @@ new p5((p) => {
             if (p.key === '1') loadLevel(1);
 
             if (p.key === '2') loadLevel(2);
+
+            if (p.key === '3') loadLevel(3);
 
             // Press 'M' to toggle between Camera and Whole World view
             if (p.key === 'm' || p.key === 'M') {
@@ -201,8 +221,8 @@ new p5((p) => {
 
         // 1. Update the grid dimensions
         const levelData = LEVELS[difficulty];
-        gridColumns = levelData.cols;
-        gridRows = levelData.rows;
+        gridRows = levelData.maze.length;
+        gridColumns = levelData.maze[0].length;
         maze = levelData.maze;
 
         // 2. Recalculate world size
@@ -419,7 +439,7 @@ new p5((p) => {
             trapTimer += dt;
             trapDamageTimer -= dt;
             movePlayer();
-            checkStandingOnTrap();
+            checkStandingOnTrap(dt);
             updateTimer();
         }
     }
@@ -497,35 +517,24 @@ new p5((p) => {
     function drawGrid() {
         for (let y = 0; y < gridRows; y++) {
             for (let x = 0; x < gridColumns; x++) {
-                if (maze[y][x] === TILE_MAP.wall) {
-                    p.fill(100);
-                } else if (maze[y][x] === TILE_MAP.spikeTrap) {
-                    const tile = maze[y][x];
-                    const active = isTrapActive(tile);
+                const tile = maze[y][x];
+                p.noStroke();
 
-                    if (active) {
-                        p.fill(255, 255, 0); // active trap (danger)
-                    } else {
-                        p.fill(60); // inactive trap (safe)
-                    }
-                } else if (maze[y][x] === TILE_MAP.fireTrap) {
-                    const tile = maze[y][x];
-                    const active = isTrapActive(tile);
-
-                    if (active) {
-                        p.fill(200, 80, 50); // active trap (danger)
-                    } else {
-                        p.fill(60); // inactive trap (safe)
-                    }
-                } else if (maze[y][x] === TILE_MAP.start) {
-                    p.fill(50, 200, 50);
-                } else if (maze[y][x] === TILE_MAP.exit) {
-                    p.fill(50, 100, 200);
-                } else {
-                    p.fill(20); // TILE_MAP.floor => 0
+                if (tile === TILE_MAP.wall) p.fill(100);
+                else if (tile === TILE_MAP.start) p.fill(50, 200, 50);
+                else if (tile === TILE_MAP.exit) p.fill(50, 100, 200);
+                else if (tile === TILE_MAP.floor) p.fill(20);
+                // Trap Rendering
+                else if (TRAPS[tile]) {
+                    const active = isTrapActive(tile, x, y);
+                    if (tile === TILE_MAP.fireTrap)
+                        p.fill(active ? [200, 80, 50] : 60);
+                    else if (tile === TILE_MAP.resetTrap)
+                        p.fill(active ? [150, 0, 255] : 60);
+                    else if (tile === TILE_MAP.darknessTrap)
+                        p.fill(active ? [0, 0, 0] : 60);
                 }
 
-                p.noStroke();
                 p.rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             }
         }
@@ -619,32 +628,60 @@ new p5((p) => {
     //#endregion
 
     //#region Traps
-    function isTrapActive(tileId) {
+    function isTrapActive(tileId, x, y) {
         const trap = TRAPS[tileId];
         if (!trap) return false;
 
         const cycle = trap.activeTime + trap.inactiveTime;
-        const timeInCycle = trapTimer % cycle;
 
+        // Create a unique offset based on position to unsync traps
+        let offset = trap.randomized ? (x * 777 + y * 999) % cycle : 0;
+
+        const timeInCycle = (trapTimer + offset) % cycle;
         return timeInCycle < trap.activeTime;
     }
 
-    function checkStandingOnTrap() {
+    function checkStandingOnTrap(dt) {
         const x = player.gridX;
         const y = player.gridY;
-
         const tile = maze[y][x];
         const trap = TRAPS[tile];
-        if (!trap) return;
 
-        if (!isTrapActive(tile)) {
-            trapDamageTimer = 0; // reset if safe
+        if (darknessEffectTimer > 0) {
+            darknessEffectTimer -= dt;
+        }
+
+        if (!trap || !isTrapActive(tile, x, y)) {
+            // If the timer is done, recover torch radius; otherwise, keep it shrunk
+            if (darknessEffectTimer <= 0 && torchRadius < 3) {
+                torchRadius = p.lerp(torchRadius, 3, 0.05);
+            }
+            trapDamageTimer = 0;
             return;
         }
 
-        if (trapDamageTimer <= 0) {
-            takeDamage(trap.damage);
-            trapDamageTimer = TRAP_DAMAGE_INTERVAL_MS;
+        switch (trap.type) {
+            case 'damage':
+                if (trapDamageTimer <= 0) {
+                    takeDamage(trap.damage);
+                    trapDamageTimer = TRAP_DAMAGE_INTERVAL_MS;
+                }
+                break;
+
+            case 'reset':
+                console.log('Reset Trap Triggered!');
+                findStartTile();
+                break;
+
+            case 'darkness':
+                // Trigger the 5-second effect
+                darknessEffectTimer = DARKNESS_DURATION;
+                break;
+        }
+
+        // Apply the effect if the timer is active
+        if (darknessEffectTimer > 0) {
+            torchRadius = p.lerp(torchRadius, 0.25, 0.1);
         }
     }
     //#endregion
