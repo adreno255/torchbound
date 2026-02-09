@@ -4,7 +4,6 @@ const BASE_HEIGHT = 600;
 const TILE_SIZE = 32;
 const MOVE_DELAY_MS = 400;
 const TRAP_DAMAGE_INTERVAL_MS = 500;
-const LEVEL_TIME_S = 300;
 const ZOOM = 1.5;
 const CAMERA_LERP = 0.05;
 // prettier-ignore
@@ -32,7 +31,8 @@ const LEVELS = {
             [1,0,0,0,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,2,0,0,1],
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 
-        ]
+        ],
+        time: 120
     },
     2: { 
         cols: 50, 
@@ -74,7 +74,8 @@ const LEVELS = {
             [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
             [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5],
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-        ]
+        ],
+        time: 300
     },
 };
 const TILE_MAP = {
@@ -99,6 +100,12 @@ const TRAPS = {
         inactiveTime: 1500, // 1.5 seconds OFF
     },
 };
+const GAME_PHASE = {
+    INTRO_REVEAL: 'intro_reveal',
+    INTRO_PAN: 'intro_pan',
+    PLAYING: 'playing',
+};
+
 //#endregion
 
 new p5((p) => {
@@ -111,11 +118,15 @@ new p5((p) => {
     let enableCamera = true;
     let enableFog = true;
     let torchRadius = 3;
-    let timeLeft = LEVEL_TIME_S;
+    let timeLeft = 0;
     let lastTimeStamp = 0;
     let timerRunning = true;
     let cameraX = 0;
     let cameraY = 0;
+    let gamePhase = GAME_PHASE.INTRO_REVEAL;
+    let transitionAlpha = 0; // 0 = Bird's-eye, 1 = Focused Camera
+    let fogOpacity = 0; // 0 = Transparent, 255 = Fully dark
+    let introTimer = 0;
 
     // Player
     let player = {
@@ -178,34 +189,6 @@ new p5((p) => {
 
         p.push();
 
-        if (enableCamera) {
-            // --- CAMERA VIEW (Focus on Player) ---
-            // Center the 800x600 viewport in the window
-            p.translate(
-                (p.windowWidth - BASE_WIDTH * scaleFactor) / 2,
-                (p.windowHeight - BASE_HEIGHT * scaleFactor) / 2,
-            );
-            p.scale(scaleFactor * ZOOM);
-
-            updateCamera();
-            p.translate(-cameraX, -cameraY);
-        } else {
-            // --- BIRDS-EYE VIEW (Center Full Maze) ---
-            // 1. Calculate a scale that fits the 50x36 maze exactly
-            let fullWorldScale = Math.min(
-                p.windowWidth / worldWidth,
-                p.windowHeight / worldHeight,
-            );
-
-            // 2. Center based on the ACTUAL world size * the new scale
-            // This stops the "hugging the right boundary" issue
-            p.translate(
-                (p.windowWidth - worldWidth * fullWorldScale) / 2,
-                (p.windowHeight - worldHeight * fullWorldScale) / 2,
-            );
-            p.scale(fullWorldScale);
-        }
-
         drawGame();
 
         p.pop();
@@ -233,34 +216,36 @@ new p5((p) => {
         findStartTile();
 
         // 5. Reset timer
-        timeLeft = LEVEL_TIME_S;
+        timeLeft = levelData.time;
+
+        // 6. Reset intro
+        gamePhase = GAME_PHASE.INTRO_REVEAL;
+        transitionAlpha = 0;
+        fogOpacity = 0;
+        introTimer = 0;
 
         console.log(`Switched to level ${difficulty}`);
     }
 
     function drawGame() {
-        updateTimer();
-
         const dt = Math.min(p.deltaTime, 50); // safety clamp
 
-        moveTimer += dt;
-        trapTimer += dt;
-        trapDamageTimer -= dt;
+        introTimer += dt;
 
-        movePlayer();
+        handleGamePhase(dt);
 
-        checkStandingOnTrap();
+        handleCamera();
 
+        // --- DRAWING ---
         drawGrid();
-
         drawPlayer();
+        initGetReadyTitle();
 
-        if (enableFog) {
-            drawFog();
-            p.image(fogLayer, 0, 0);
+        handleFog();
+
+        if (gamePhase === GAME_PHASE.PLAYING) {
+            checkExitReached();
         }
-
-        checkExitReached();
     }
 
     function drawHUD() {
@@ -361,6 +346,136 @@ new p5((p) => {
         console.log("Time's up!");
         timerRunning = false;
         p.noLoop(); // temporary game over
+    }
+
+    function initGetReadyTitle() {
+        if (gamePhase !== GAME_PHASE.PLAYING) {
+            p.push();
+            p.resetMatrix();
+
+            let textAlpha = 255 - fogOpacity;
+            p.textAlign(p.CENTER, p.CENTER);
+            p.textStyle(p.BOLD);
+
+            let displayStr = '';
+            let displaySize = 48;
+
+            // 0 to 1.5 seconds: Intro Header
+            if (introTimer < 1500) {
+                displayStr = 'GET READY!';
+            }
+            // 1.5 to 6.5 seconds: The 5, 4, 3, 2, 1 Countdown
+            else if (introTimer < 6500) {
+                // This math converts 1500-6500ms into the numbers 5 down to 1
+                let secondsElapsed = (introTimer - 1500) / 1000;
+                displayStr = Math.floor(6 - secondsElapsed).toString();
+                displaySize = 90;
+
+                // Subtle "Pop" effect every second
+                let pop = p.map(introTimer % 1000, 0, 200, 20, 0, true);
+                displaySize += pop;
+            }
+            // 6.5 seconds until Playing: GO!
+            else {
+                displayStr = 'GO!';
+                displaySize = 100;
+            }
+
+            // Drop shadow
+            p.fill(0, textAlpha * 0.4);
+            p.textSize(displaySize);
+            p.text(displayStr, p.windowWidth / 2 + 5, p.windowHeight / 2 + 5);
+
+            // Main Text
+            p.fill(255, textAlpha);
+            p.text(displayStr, p.windowWidth / 2, p.windowHeight / 2);
+
+            p.pop();
+        }
+    }
+
+    function handleGamePhase(dt) {
+        if (gamePhase === GAME_PHASE.INTRO_REVEAL) {
+            transitionAlpha = 0;
+            if (introTimer > 1500) gamePhase = GAME_PHASE.INTRO_PAN;
+        } else if (gamePhase === GAME_PHASE.INTRO_PAN) {
+            // Smoothly increase alpha from 0 to 1 over 2 seconds
+            transitionAlpha = p.constrain(transitionAlpha + dt / 5000, 0, 1);
+
+            // Once zoomed in, fade in the fog
+            if (transitionAlpha >= 1) {
+                fogOpacity = p.constrain(fogOpacity + dt / 5, 0, 255);
+
+                if (fogOpacity >= 255) {
+                    gamePhase = GAME_PHASE.PLAYING;
+                    lastTimeStamp = p.millis();
+                }
+            }
+        } else {
+            // Normal Gameplay
+            transitionAlpha = 1;
+            fogOpacity = 255;
+            moveTimer += dt;
+            trapTimer += dt;
+            trapDamageTimer -= dt;
+            movePlayer();
+            checkStandingOnTrap();
+            updateTimer();
+        }
+    }
+
+    function handleCamera() {
+        // --- SMOOTH CAMERA & ZOOM CALCULATION ---
+        let finalScale, finalTransX, finalTransY, finalCameraX, finalCameraY;
+
+        // 1. Calculate Bird's-Eye values
+        const fullWorldScale = Math.min(
+            p.windowWidth / worldWidth,
+            p.windowHeight / worldHeight,
+        );
+        const birdEyeX = (p.windowWidth - worldWidth * fullWorldScale) / 2;
+        const birdEyeY = (p.windowHeight - worldHeight * fullWorldScale) / 2;
+
+        if (!enableCamera) {
+            // DEBUG MAP MODE: Full view, no panning
+            finalScale = fullWorldScale;
+            finalTransX = birdEyeX;
+            finalTransY = birdEyeY;
+            finalCameraX = 0;
+            finalCameraY = 0;
+        } else {
+            // NORMAL GAMEPLAY / INTRO: Zoomed and panned
+            const targetScale = scaleFactor * ZOOM;
+            const cameraViewX = (p.windowWidth - BASE_WIDTH * scaleFactor) / 2;
+            const cameraViewY =
+                (p.windowHeight - BASE_HEIGHT * scaleFactor) / 2;
+
+            finalScale = p.lerp(fullWorldScale, targetScale, transitionAlpha);
+            finalTransX = p.lerp(birdEyeX, cameraViewX, transitionAlpha);
+            finalTransY = p.lerp(birdEyeY, cameraViewY, transitionAlpha);
+
+            updateCamera();
+            finalCameraX = cameraX * transitionAlpha;
+            finalCameraY = cameraY * transitionAlpha;
+        }
+
+        // Apply the transformation
+        p.translate(finalTransX, finalTransY);
+        p.scale(finalScale);
+        p.translate(-finalCameraX, -finalCameraY);
+    }
+
+    function handleFog() {
+        // Toggle fog based on BOTH debug setting and intro progress
+        let shouldShowFog =
+            enableFog && (gamePhase === GAME_PHASE.PLAYING || fogOpacity > 0);
+
+        if (shouldShowFog && enableCamera) {
+            drawFog();
+            p.tint(255, fogOpacity);
+            p.image(fogLayer, 0, 0);
+            p.noTint();
+        }
     }
     //#endregion
 
