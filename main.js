@@ -140,6 +140,13 @@ const GAME_PHASE = {
     INTRO_PAN: 'intro_pan',
     PLAYING: 'playing',
 };
+const GAME_STATE = {
+    MENU: 'menu',
+    LEVEL_SELECT: 'level_select',
+    PLAYING: 'playing',
+    GAMEOVER: 'gameover',
+    VICTORY: 'victory',
+};
 
 //#endregion
 
@@ -162,6 +169,8 @@ new p5((p) => {
     let transitionAlpha = 0; // 0 = Bird's-eye, 1 = Focused Camera
     let fogOpacity = 0; // 0 = Transparent, 255 = Fully dark
     let introTimer = 0;
+    let currentGameState = GAME_STATE.MENU;
+    let lossReason = '';
 
     // Player
     let player = {
@@ -230,13 +239,31 @@ new p5((p) => {
     p.draw = () => {
         p.background(0);
 
-        p.push();
+        if (currentGameState === GAME_STATE.PLAYING) {
+            p.push();
+            drawGame();
+            p.pop();
+            drawHUD();
+        } else {
+            p.push();
 
-        drawGame();
+            switch (currentGameState) {
+                case GAME_STATE.MENU:
+                    drawMenu();
+                    break;
+                case GAME_STATE.LEVEL_SELECT:
+                    drawLevelSelect();
+                    break;
+                case GAME_STATE.GAMEOVER:
+                    drawGameOver();
+                    break;
+                case GAME_STATE.VICTORY:
+                    drawVictory();
+                    break;
+            }
 
-        p.pop();
-
-        drawHUD();
+            p.pop();
+        }
     };
 
     function loadLevel(difficulty) {
@@ -255,7 +282,8 @@ new p5((p) => {
         // 3. Reset Fog Buffer
         initFog();
 
-        // 4. Relocate player to the start (4) of the new maze
+        // 4. Reset and relocate player to the start (4) of the new maze
+        player.hp = 100;
         findStartTile();
 
         // 5. Reset timer
@@ -384,23 +412,21 @@ new p5((p) => {
     }
 
     function onPlayerDeath() {
-        console.log('Player died');
+        lossReason = 'You succumbed to the traps.';
+        currentGameState = GAME_STATE.GAMEOVER;
         timerRunning = false;
-        p.noLoop(); // temporary game over
-    }
-
-    function onLevelComplete() {
-        console.log('Level escaped!');
-        timerRunning = false;
-        p.noLoop(); // temporary victory state
     }
 
     function onTimeUp() {
-        console.log("Time's up!");
+        lossReason = 'Your torch burned out in the darkness.';
+        currentGameState = GAME_STATE.GAMEOVER;
         timerRunning = false;
-        p.noLoop(); // temporary game over
     }
 
+    function onLevelComplete() {
+        currentGameState = GAME_STATE.VICTORY;
+        timerRunning = false;
+    }
     function initGetReadyTitle() {
         if (gamePhase !== GAME_PHASE.PLAYING) {
             p.push();
@@ -529,6 +555,134 @@ new p5((p) => {
             p.tint(255, fogOpacity);
             p.image(fogLayer, 0, 0);
             p.noTint();
+        }
+    }
+    //#endregion
+
+    //#region Screens
+    function drawMenu() {
+        p.textAlign(p.CENTER, p.CENTER);
+        p.fill(255);
+        p.textSize(64);
+        p.text('TORCHBOUND', p.windowWidth / 2, p.windowHeight / 2 - 50);
+
+        drawButton('PLAY', p.windowWidth / 2, p.windowHeight / 2 + 50, () => {
+            currentGameState = GAME_STATE.LEVEL_SELECT;
+        });
+    }
+
+    function drawLevelSelect() {
+        p.textAlign(p.CENTER, p.CENTER);
+        p.fill(255);
+        p.textSize(32);
+        p.text('SELECT A LEVEL', p.windowWidth / 2, 100);
+
+        // Level Buttons
+        for (let i = 1; i <= 3; i++) {
+            drawButton(
+                `Level ${i}: ${LEVELS[i].name}`,
+                p.windowWidth / 2,
+                150 + i * 80,
+                () => {
+                    currentLevel = i;
+                    loadLevel(i);
+                    currentGameState = GAME_STATE.PLAYING;
+                },
+            );
+        }
+
+        // --- BACK BUTTON ---
+        // Positioned at the bottom
+        drawButton('BACK', p.windowWidth / 2, p.windowHeight - 80, () => {
+            currentGameState = GAME_STATE.MENU;
+        });
+    }
+
+    function drawVictory() {
+        p.background(0, 50, 0); // Subtle green
+        p.textAlign(p.CENTER, p.CENTER);
+        p.fill(255);
+        p.textSize(48);
+        p.text('YOU ESCAPED!', p.windowWidth / 2, p.windowHeight / 2 - 50);
+
+        drawButton(
+            'MENU',
+            p.windowWidth / 2 - 175,
+            p.windowHeight / 2 + 50,
+            () => {
+                currentGameState = GAME_STATE.MENU;
+            },
+        );
+        drawButton(
+            'RETRY',
+            p.windowWidth / 2 + 175,
+            p.windowHeight / 2 + 50,
+            () => {
+                loadLevel(currentLevel);
+                currentGameState = GAME_STATE.PLAYING;
+                p.loop();
+            },
+        );
+    }
+
+    function drawGameOver() {
+        p.background(50, 0, 0); // Subtle red
+        p.textAlign(p.CENTER, p.CENTER);
+        p.fill(255);
+        p.textSize(48);
+        p.text('GAME OVER', p.windowWidth / 2, p.windowHeight / 2 - 80);
+        p.textSize(24);
+        p.fill(200);
+        p.text(
+            `Cause: ${lossReason}`,
+            p.windowWidth / 2,
+            p.windowHeight / 2 - 30,
+        );
+
+        drawButton(
+            'MENU',
+            p.windowWidth / 2 - 175,
+            p.windowHeight / 2 + 50,
+            () => {
+                currentGameState = GAME_STATE.MENU;
+            },
+        );
+        drawButton(
+            'RETRY',
+            p.windowWidth / 2 + 175,
+            p.windowHeight / 2 + 50,
+            () => {
+                loadLevel(currentLevel);
+                currentGameState = GAME_STATE.PLAYING;
+                p.loop();
+            },
+        );
+    }
+
+    function drawButton(label, x, y, onClick) {
+        const btnW = 300;
+        const btnH = 50;
+
+        // Check hover
+        let isHovered =
+            p.mouseX > x - btnW / 2 &&
+            p.mouseX < x + btnW / 2 &&
+            p.mouseY > y - btnH / 2 &&
+            p.mouseY < y + btnH / 2;
+
+        p.fill(isHovered ? 100 : 50);
+        p.rectMode(p.CENTER);
+        p.rect(x, y, btnW, btnH, 5);
+
+        p.fill(255);
+        p.textSize(20);
+        p.textAlign(p.CENTER, p.CENTER);
+        p.text(label, x, y);
+
+        if (isHovered && p.mouseIsPressed) {
+            // Debounce: prevent multiple clicks
+            p.mouseIsPressed = false;
+            onClick();
         }
     }
     //#endregion
