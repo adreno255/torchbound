@@ -93,6 +93,16 @@ const LEVELS = {
         name: "The Grand Labyrinth",
         maze: generateMaze(40, 25, 0.08, 0.03),
         time: 300 
+    },
+    4: {
+        name: "Corridor of Embers",
+        maze: generateMaze(50, 35, 0.12, 0.04), // Larger area with significantly more traps
+        time: 420 
+    },
+    5: {
+        name: "The Abyssal Core",
+        maze: generateMaze(65, 45, 0.15, 0.06), // Maximum size and trap density
+        time: 600 
     }
 };
 const TILE_MAP = {
@@ -144,6 +154,7 @@ const GAME_STATE = {
     MENU: 'menu',
     LEVEL_SELECT: 'level_select',
     PLAYING: 'playing',
+    PAUSED: 'paused',
     GAMEOVER: 'gameover',
     VICTORY: 'victory',
 };
@@ -170,6 +181,7 @@ new p5((p) => {
     let fogOpacity = 0; // 0 = Transparent, 255 = Fully dark
     let introTimer = 0;
     let currentGameState = GAME_STATE.MENU;
+    let victoryMessage = '';
     let lossReason = '';
 
     // Player
@@ -180,6 +192,8 @@ new p5((p) => {
         maxHp: 100,
     };
     let moveTimer = 0;
+    let currentScore = 0;
+    let levelScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
     // Traps
     let trapTimer = 0;
@@ -194,6 +208,19 @@ new p5((p) => {
 
     //#region Debug Mode
     p.keyPressed = () => {
+        // Toggle Pause
+        if (p.key === 'p' || p.key === 'P' || p.keyCode === 27) {
+            // 27 is Escape
+            if (currentGameState === GAME_STATE.PLAYING) {
+                currentGameState = GAME_STATE.PAUSED;
+                timerRunning = false;
+            } else if (currentGameState === GAME_STATE.PAUSED) {
+                currentGameState = GAME_STATE.PLAYING;
+                timerRunning = true;
+                lastTimeStamp = p.millis(); // Prevent timer jump after unpausing
+            }
+        }
+
         if (p.key === '0') {
             debugMode = !debugMode;
         }
@@ -226,24 +253,41 @@ new p5((p) => {
 
     //#region p5 Core Functions
     p.setup = () => {
-        loadLevel(currentLevel);
         p.createCanvas(p.windowWidth, p.windowHeight);
         p.pixelDensity(1);
         p.noSmooth();
         resizeGame();
-        initFog();
-        findStartTile();
-        lastTimeStamp = p.millis();
     };
 
     p.draw = () => {
         p.background(0);
 
-        if (currentGameState === GAME_STATE.PLAYING) {
+        // Calculate Delta Time
+        let currentTime = p.millis();
+        let dt = currentTime - lastTimeStamp;
+        lastTimeStamp = currentTime;
+
+        // FIX: If paused, force dt to 0 so no timers decrease
+        if (currentGameState === GAME_STATE.PAUSED) {
+            dt = 0;
+        }
+
+        if (
+            currentGameState === GAME_STATE.PLAYING ||
+            currentGameState === GAME_STATE.PAUSED
+        ) {
             p.push();
-            drawGame();
+            drawGame(); // Renders the maze and player
             p.pop();
-            drawHUD();
+            drawHUD(); // Renders HP and Timer
+
+            if (currentGameState === GAME_STATE.PAUSED) {
+                p.push();
+                drawPauseMenu();
+                p.pop();
+            } else {
+                handleGameplayLogic(dt);
+            }
         } else {
             p.push();
 
@@ -287,7 +331,7 @@ new p5((p) => {
         findStartTile();
 
         // 5. Reset timer
-        timeLeft = levelData.time;
+        resetTimers(levelData.time);
 
         // 6. Reset intro
         gamePhase = GAME_PHASE.INTRO_REVEAL;
@@ -296,6 +340,20 @@ new p5((p) => {
         introTimer = 0;
 
         console.log(`Switched to level ${difficulty}`);
+    }
+
+    function resetTimers(levelTime) {
+        timeLeft = levelTime;
+        lastTimeStamp = p.millis();
+        timerRunning = true;
+        introTimer = 0;
+        moveTimer = 0;
+        trapTimer = 0;
+        trapDamageTimer = 0;
+        darknessEffectTimer = 0;
+        torchEffectTimer = 0;
+        visionEffectTimer = 0;
+        timeBonusTextTimer = 0;
     }
 
     function drawGame() {
@@ -376,11 +434,10 @@ new p5((p) => {
     }
 
     function updateTimer() {
-        if (!timerRunning) return;
+        if (!timerRunning || currentGameState !== GAME_STATE.PLAYING) return;
 
-        const now = p.millis();
-        const deltaSeconds = (now - lastTimeStamp) / 1000;
-        lastTimeStamp = now;
+        // p.deltaTime is the actual milliseconds between frames
+        const deltaSeconds = p.deltaTime / 1000;
 
         timeLeft -= deltaSeconds;
         timeLeft = Math.max(timeLeft, 0);
@@ -390,43 +447,40 @@ new p5((p) => {
         }
     }
 
-    function updateCamera() {
-        // Calculate how much of the world is actually visible at this ZOOM
-        const visibleWidth = BASE_WIDTH / ZOOM;
-        const visibleHeight = BASE_HEIGHT / ZOOM;
-
-        // The target is: Player Position minus HALF of the VISIBLE area
-        const targetX =
-            player.gridX * TILE_SIZE + TILE_SIZE / 2 - visibleWidth / 2;
-        const targetY =
-            player.gridY * TILE_SIZE + TILE_SIZE / 2 - visibleHeight / 2;
-
-        // Smoothly follow the target
-        cameraX = p.lerp(cameraX, targetX, CAMERA_LERP);
-        cameraY = p.lerp(cameraY, targetY, CAMERA_LERP);
-
-        // Clamp to world bounds so we don't see the "void"
-        // We stop the camera when the edge of the visible area hits the world edge
-        cameraX = p.constrain(cameraX, 0, worldWidth - visibleWidth);
-        cameraY = p.constrain(cameraY, 0, worldHeight - visibleHeight);
-    }
-
     function onPlayerDeath() {
         lossReason = 'You succumbed to the traps.';
+        // Even in death, we can show their final score if they got far
+        let finalScore = calculateScore();
+        lossReason += `\nFinal Score: ${finalScore}`;
+
         currentGameState = GAME_STATE.GAMEOVER;
         timerRunning = false;
     }
 
     function onTimeUp() {
         lossReason = 'Your torch burned out in the darkness.';
+        let finalScore = calculateScore();
+        lossReason += `\nFinal Score: ${finalScore}`;
+
         currentGameState = GAME_STATE.GAMEOVER;
         timerRunning = false;
     }
 
     function onLevelComplete() {
+        let currentScore = calculateScore();
+        // Store score in a global to display on the Victory screen
+
+        // Save High Score
+        if (currentScore > levelScores[currentLevel]) {
+            levelScores[currentLevel] = currentScore;
+        }
+
+        victoryMessage = `Final Score: ${currentScore}\nBest: ${levelScores[currentLevel]}`;
+
         currentGameState = GAME_STATE.VICTORY;
         timerRunning = false;
     }
+
     function initGetReadyTitle() {
         if (gamePhase !== GAME_PHASE.PLAYING) {
             p.push();
@@ -478,7 +532,7 @@ new p5((p) => {
             transitionAlpha = 0;
             if (introTimer > 1500) gamePhase = GAME_PHASE.INTRO_PAN;
         } else if (gamePhase === GAME_PHASE.INTRO_PAN) {
-            // Smoothly increase alpha from 0 to 1 over 2 seconds
+            // Smoothly increase alpha from 0 to 1 over 5 seconds
             transitionAlpha = p.constrain(transitionAlpha + dt / 5000, 0, 1);
 
             // Once zoomed in, fade in the fog
@@ -487,75 +541,36 @@ new p5((p) => {
 
                 if (fogOpacity >= 255) {
                     gamePhase = GAME_PHASE.PLAYING;
-                    lastTimeStamp = p.millis();
                 }
             }
         } else {
             // Normal Gameplay
             transitionAlpha = 1;
             fogOpacity = 255;
-            moveTimer += dt;
-            trapTimer += dt;
-            trapDamageTimer -= dt;
-            movePlayer();
-            checkStandingOnTrap(dt);
-            checkPowerUps(dt);
-            updateTimer();
         }
     }
 
-    function handleCamera() {
-        // --- SMOOTH CAMERA & ZOOM CALCULATION ---
-        let finalScale, finalTransX, finalTransY, finalCameraX, finalCameraY;
+    function handleGameplayLogic(dt) {
+        if (
+            currentGameState !== GAME_STATE.PLAYING ||
+            gamePhase !== GAME_PHASE.PLAYING
+        )
+            return;
 
-        // 1. Calculate Bird's-Eye values
-        const fullWorldScale = Math.min(
-            p.windowWidth / worldWidth,
-            p.windowHeight / worldHeight,
-        );
-        const birdEyeX = (p.windowWidth - worldWidth * fullWorldScale) / 2;
-        const birdEyeY = (p.windowHeight - worldHeight * fullWorldScale) / 2;
-
-        if (!enableCamera) {
-            // DEBUG MAP MODE: Full view, no panning
-            finalScale = fullWorldScale;
-            finalTransX = birdEyeX;
-            finalTransY = birdEyeY;
-            finalCameraX = 0;
-            finalCameraY = 0;
-        } else {
-            // NORMAL GAMEPLAY / INTRO: Zoomed and panned
-            const targetScale = scaleFactor * ZOOM;
-            const cameraViewX = (p.windowWidth - BASE_WIDTH * scaleFactor) / 2;
-            const cameraViewY =
-                (p.windowHeight - BASE_HEIGHT * scaleFactor) / 2;
-
-            finalScale = p.lerp(fullWorldScale, targetScale, transitionAlpha);
-            finalTransX = p.lerp(birdEyeX, cameraViewX, transitionAlpha);
-            finalTransY = p.lerp(birdEyeY, cameraViewY, transitionAlpha);
-
-            updateCamera();
-            finalCameraX = cameraX * transitionAlpha;
-            finalCameraY = cameraY * transitionAlpha;
-        }
-
-        // Apply the transformation
-        p.translate(finalTransX, finalTransY);
-        p.scale(finalScale);
-        p.translate(-finalCameraX, -finalCameraY);
+        moveTimer += dt;
+        trapTimer += dt;
+        trapDamageTimer -= dt;
+        movePlayer();
+        checkStandingOnTrap(dt);
+        checkPowerUps(dt);
+        updateTimer();
     }
 
-    function handleFog() {
-        // Toggle fog based on BOTH debug setting and intro progress
-        let shouldShowFog =
-            enableFog && (gamePhase === GAME_PHASE.PLAYING || fogOpacity > 0);
-
-        if (shouldShowFog && enableCamera) {
-            drawFog();
-            p.tint(255, fogOpacity);
-            p.image(fogLayer, 0, 0);
-            p.noTint();
-        }
+    function calculateScore() {
+        // Basic scoring: 10 points per HP and 20 points per second remaining
+        const hpScore = Math.floor(player.hp) * 10;
+        const timeScore = Math.max(0, Math.floor(timeLeft)) * 20;
+        return hpScore + timeScore;
     }
     //#endregion
 
@@ -578,11 +593,11 @@ new p5((p) => {
         p.text('SELECT A LEVEL', p.windowWidth / 2, 100);
 
         // Level Buttons
-        for (let i = 1; i <= 3; i++) {
+        for (let i = 1; i <= Object.keys(LEVELS).length; i++) {
             drawButton(
                 `Level ${i}: ${LEVELS[i].name}`,
                 p.windowWidth / 2,
-                150 + i * 80,
+                100 + i * 80,
                 () => {
                     currentLevel = i;
                     loadLevel(i);
@@ -598,29 +613,76 @@ new p5((p) => {
         });
     }
 
+    function drawPauseMenu() {
+        // Darken the background slightly
+        p.fill(0);
+        p.rectMode(p.CORNER);
+        p.rect(0, 0, p.windowWidth, p.windowHeight);
+
+        p.textAlign(p.CENTER, p.CENTER);
+        p.fill(255);
+        p.textSize(48);
+        p.text('PAUSED', p.windowWidth / 2, p.windowHeight / 2 - 120);
+
+        // 1. Resume Button
+        drawButton('RESUME', p.windowWidth / 2, p.windowHeight / 2 - 40, () => {
+            currentGameState = GAME_STATE.PLAYING;
+            timerRunning = true;
+            lastTimeStamp = p.millis();
+        });
+
+        // 2. Retry Button
+        drawButton('RETRY', p.windowWidth / 2, p.windowHeight / 2 + 30, () => {
+            loadLevel(currentLevel);
+            currentGameState = GAME_STATE.PLAYING;
+            p.loop();
+        });
+
+        // 3. Level Select Button
+        drawButton(
+            'LEVELS',
+            p.windowWidth / 2,
+            p.windowHeight / 2 + 100,
+            () => {
+                currentGameState = GAME_STATE.LEVEL_SELECT;
+            },
+        );
+
+        // 4. Main Menu Button
+        drawButton('MENU', p.windowWidth / 2, p.windowHeight / 2 + 170, () => {
+            currentGameState = GAME_STATE.MENU;
+        });
+    }
+
     function drawVictory() {
         p.background(0, 50, 0); // Subtle green
         p.textAlign(p.CENTER, p.CENTER);
         p.fill(255);
         p.textSize(48);
-        p.text('YOU ESCAPED!', p.windowWidth / 2, p.windowHeight / 2 - 50);
+        p.text('YOU ESCAPED!', p.windowWidth / 2, p.windowHeight / 2 - 80);
+
+        p.textSize(24);
+        p.text(victoryMessage, p.windowWidth / 2, p.windowHeight / 2 - 20);
 
         drawButton(
+            'CONTINUE',
+            p.windowWidth / 2 - 325,
+            p.windowHeight / 2 + 50,
+            () => {
+                currentGameState = GAME_STATE.LEVEL_SELECT;
+            },
+        );
+        drawButton('RETRY', p.windowWidth / 2, p.windowHeight / 2 + 50, () => {
+            loadLevel(currentLevel);
+            currentGameState = GAME_STATE.PLAYING;
+            p.loop();
+        });
+        drawButton(
             'MENU',
-            p.windowWidth / 2 - 175,
+            p.windowWidth / 2 + 325,
             p.windowHeight / 2 + 50,
             () => {
                 currentGameState = GAME_STATE.MENU;
-            },
-        );
-        drawButton(
-            'RETRY',
-            p.windowWidth / 2 + 175,
-            p.windowHeight / 2 + 50,
-            () => {
-                loadLevel(currentLevel);
-                currentGameState = GAME_STATE.PLAYING;
-                p.loop();
             },
         );
     }
@@ -630,7 +692,7 @@ new p5((p) => {
         p.textAlign(p.CENTER, p.CENTER);
         p.fill(255);
         p.textSize(48);
-        p.text('GAME OVER', p.windowWidth / 2, p.windowHeight / 2 - 80);
+        p.text('GAME OVER', p.windowWidth / 2, p.windowHeight / 2 - 100);
         p.textSize(24);
         p.fill(200);
         p.text(
@@ -640,21 +702,24 @@ new p5((p) => {
         );
 
         drawButton(
-            'MENU',
-            p.windowWidth / 2 - 175,
-            p.windowHeight / 2 + 50,
-            () => {
-                currentGameState = GAME_STATE.MENU;
-            },
-        );
-        drawButton(
             'RETRY',
-            p.windowWidth / 2 + 175,
+            p.windowWidth / 2 - 325,
             p.windowHeight / 2 + 50,
             () => {
                 loadLevel(currentLevel);
                 currentGameState = GAME_STATE.PLAYING;
                 p.loop();
+            },
+        );
+        drawButton('LEVELS', p.windowWidth / 2, p.windowHeight / 2 + 50, () => {
+            currentGameState = GAME_STATE.LEVEL_SELECT;
+        });
+        drawButton(
+            'MENU',
+            p.windowWidth / 2 + 325,
+            p.windowHeight / 2 + 50,
+            () => {
+                currentGameState = GAME_STATE.MENU;
             },
         );
     }
@@ -773,6 +838,83 @@ new p5((p) => {
             }
         }
     }
+
+    function handleFog() {
+        // Toggle fog based on BOTH debug setting and intro progress
+        let shouldShowFog =
+            enableFog && (gamePhase === GAME_PHASE.PLAYING || fogOpacity > 0);
+
+        if (shouldShowFog && enableCamera) {
+            drawFog();
+            p.tint(255, fogOpacity);
+            p.image(fogLayer, 0, 0);
+            p.noTint();
+        }
+    }
+    //#endregion
+
+    //#region Camera
+    function handleCamera() {
+        // --- SMOOTH CAMERA & ZOOM CALCULATION ---
+        let finalScale, finalTransX, finalTransY, finalCameraX, finalCameraY;
+
+        // 1. Calculate Bird's-Eye values
+        const fullWorldScale = Math.min(
+            p.windowWidth / worldWidth,
+            p.windowHeight / worldHeight,
+        );
+        const birdEyeX = (p.windowWidth - worldWidth * fullWorldScale) / 2;
+        const birdEyeY = (p.windowHeight - worldHeight * fullWorldScale) / 2;
+
+        if (!enableCamera) {
+            // DEBUG MAP MODE: Full view, no panning
+            finalScale = fullWorldScale;
+            finalTransX = birdEyeX;
+            finalTransY = birdEyeY;
+            finalCameraX = 0;
+            finalCameraY = 0;
+        } else {
+            // NORMAL GAMEPLAY / INTRO: Zoomed and panned
+            const targetScale = scaleFactor * ZOOM;
+            const cameraViewX = (p.windowWidth - BASE_WIDTH * scaleFactor) / 2;
+            const cameraViewY =
+                (p.windowHeight - BASE_HEIGHT * scaleFactor) / 2;
+
+            finalScale = p.lerp(fullWorldScale, targetScale, transitionAlpha);
+            finalTransX = p.lerp(birdEyeX, cameraViewX, transitionAlpha);
+            finalTransY = p.lerp(birdEyeY, cameraViewY, transitionAlpha);
+
+            updateCamera();
+            finalCameraX = cameraX * transitionAlpha;
+            finalCameraY = cameraY * transitionAlpha;
+        }
+
+        // Apply the transformation
+        p.translate(finalTransX, finalTransY);
+        p.scale(finalScale);
+        p.translate(-finalCameraX, -finalCameraY);
+    }
+
+    function updateCamera() {
+        // Calculate how much of the world is actually visible at this ZOOM
+        const visibleWidth = BASE_WIDTH / ZOOM;
+        const visibleHeight = BASE_HEIGHT / ZOOM;
+
+        // The target is: Player Position minus HALF of the VISIBLE area
+        const targetX =
+            player.gridX * TILE_SIZE + TILE_SIZE / 2 - visibleWidth / 2;
+        const targetY =
+            player.gridY * TILE_SIZE + TILE_SIZE / 2 - visibleHeight / 2;
+
+        // Smoothly follow the target
+        cameraX = p.lerp(cameraX, targetX, CAMERA_LERP);
+        cameraY = p.lerp(cameraY, targetY, CAMERA_LERP);
+
+        // Clamp to world bounds so we don't see the "void"
+        // We stop the camera when the edge of the visible area hits the world edge
+        cameraX = p.constrain(cameraX, 0, worldWidth - visibleWidth);
+        cameraY = p.constrain(cameraY, 0, worldHeight - visibleHeight);
+    }
     //#endregion
 
     //#region Player
@@ -838,6 +980,8 @@ new p5((p) => {
     }
 
     function checkStandingOnTrap(dt) {
+        if (currentGameState !== GAME_STATE.PLAYING) return;
+
         const x = player.gridX;
         const y = player.gridY;
         const tile = maze[y][x];
@@ -891,6 +1035,8 @@ new p5((p) => {
 
     //#region Power-ups
     function checkPowerUps(dt) {
+        if (currentGameState !== GAME_STATE.PLAYING) return;
+
         const x = player.gridX;
         const y = player.gridY;
         const tile = maze[y][x];
