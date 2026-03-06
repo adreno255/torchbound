@@ -8,7 +8,7 @@ import {
     TRAP_DAMAGE_INTERVAL_MS,
     DARKNESS_DURATION,
     GAME_STATE,
-} from '../constants.js';
+} from '../common/constants.js';
 
 /**
  * Returns true if the trap at (x, y) is in its active phase.

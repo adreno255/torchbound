@@ -8,7 +8,7 @@
 //   p.image(sprites.player, player.gridX * TILE_SIZE, player.gridY * TILE_SIZE, TILE_SIZE, TILE_SIZE)
 // ============================================================
 
-import { TILE_SIZE, TILE_MAP, MOVE_DELAY_MS } from '../constants.js';
+import { TILE_SIZE, TILE_MAP, MOVE_DELAY_MS } from '../common/constants.js';
 
 /**
  * Returns a fresh player state object.

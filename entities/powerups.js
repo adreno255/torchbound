@@ -4,7 +4,11 @@
 // on torch radius and camera mode.
 // ============================================================
 
-import { TILE_MAP, POWER_UP_DURATIONS, GAME_STATE } from '../constants.js';
+import {
+    TILE_MAP,
+    POWER_UP_DURATIONS,
+    GAME_STATE,
+} from '../common/constants.js';
 
 /**
  * Checks the player's current tile for a power-up, collects it if present,

@@ -4,9 +4,14 @@
 // Owns all game state, runs the loop, and wires every module.
 // ============================================================
 
-import { TILE_SIZE, GAME_STATE, GAME_PHASE, TILE_MAP } from './constants.js';
-import { LEVELS } from './levels.js';
-import { getScaleFactor, calculateScore } from './utils.js';
+import {
+    TILE_SIZE,
+    GAME_STATE,
+    GAME_PHASE,
+    TILE_MAP,
+} from './common/constants.js';
+import { LEVELS } from './common/levels.js';
+import { getScaleFactor, calculateScore } from './common/utils.js';
 import {
     createPlayer,
     findStartTile,
@@ -34,7 +39,7 @@ import {
     getSavedPlayerName,
     savePlayerName,
     clearPlayerName,
-} from './leaderboard.js';
+} from './common/leaderboard.js';
 
 // ============================================================
 

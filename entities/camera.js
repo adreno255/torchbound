@@ -9,7 +9,7 @@ import {
     TILE_SIZE,
     ZOOM,
     CAMERA_LERP,
-} from '../constants.js';
+} from '../common/constants.js';
 
 /**
  * Applies the camera transformation to the p5 sketch for the current frame.

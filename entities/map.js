@@ -11,7 +11,7 @@
 //   sprites.timePowerUp, sprites.torchPowerUp, sprites.visionPowerUp
 // ============================================================
 
-import { TILE_SIZE, TILE_MAP, TRAPS, GAME_PHASE } from '../constants.js';
+import { TILE_SIZE, TILE_MAP, TRAPS, GAME_PHASE } from '../common/constants.js';
 
 /**
  * Draws every tile of the maze grid using placeholder colors.

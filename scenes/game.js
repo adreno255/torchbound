@@ -4,8 +4,8 @@
 // Also contains the pause menu draw call.
 // ============================================================
 
-import { GAME_PHASE } from '../constants.js';
-import { drawButton } from '../utils.js';
+import { GAME_PHASE } from '../common/constants.js';
+import { drawButton } from '../common/utils.js';
 
 /**
  * Draws the HUD overlay: HP, timer, debug indicator, and "+30s" bonus flash.

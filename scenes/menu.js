@@ -4,7 +4,7 @@
 // victory, game over, and leaderboard.
 // ============================================================
 
-import { drawButton } from '../utils.js';
+import { drawButton } from '../common/utils.js';
 
 // ---------------------------------------------------------------------------
 // Main Menu
