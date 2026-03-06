@@ -4,14 +4,7 @@
 // Owns all game state, runs the loop, and wires every module.
 // ============================================================
 
-import {
-    BASE_WIDTH,
-    BASE_HEIGHT,
-    TILE_SIZE,
-    GAME_STATE,
-    GAME_PHASE,
-    TILE_MAP,
-} from './constants.js';
+import { TILE_SIZE, GAME_STATE, GAME_PHASE, TILE_MAP } from './constants.js';
 import { LEVELS } from './levels.js';
 import { getScaleFactor, calculateScore } from './utils.js';
 import {
