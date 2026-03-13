@@ -73,13 +73,13 @@ export function checkPowerUps(params) {
     if (tile === TILE_MAP.timePowerUp) {
         newTimeLeft += 30;
         newTimeBonusTimer = 3000;
-        maze[y][x] = 0;
+        maze[y][x] = 10;
     } else if (tile === TILE_MAP.torchPowerUp) {
         newTorchTimer = POWER_UP_DURATIONS.TORCH;
-        maze[y][x] = 0;
+        maze[y][x] = 10;
     } else if (tile === TILE_MAP.visionPowerUp) {
         newVisionTimer = POWER_UP_DURATIONS.VISION;
-        maze[y][x] = 0;
+        maze[y][x] = 10;
     }
 
     // Vision power-up disables the camera (reveals full map)

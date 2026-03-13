@@ -42,6 +42,8 @@ export function drawGrid(p, { maze, gridRows, gridColumns, isTrapActiveFn }) {
                 p.fill(255, 150, 0); // Orange
             else if (tile === TILE_MAP.visionPowerUp)
                 p.fill(0, 255, 255); // Cyan
+            else if (tile === TILE_MAP.consumedPowerUp)
+                p.fill(60); // Dark gray for consumed power-ups
             else if (TRAPS[tile]) {
                 const active = isTrapActiveFn(tile, x, y);
                 if (tile === TILE_MAP.fireTrap)

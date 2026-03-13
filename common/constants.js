@@ -40,6 +40,7 @@ export const TILE_MAP = {
     timePowerUp: 7,
     torchPowerUp: 8,
     visionPowerUp: 9,
+    consumedPowerUp: 10,
 };
 
 export const TRAPS = {
