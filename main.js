@@ -94,7 +94,7 @@ new p5((p) => {
 
     p.preload = () => {
         tilesetImg = p.loadImage(
-            'assets/dungeon/torchbound_tileset.png',
+            'assets/dungeon/torchbound_tileset-dark.png',
             () => console.log('Tileset loaded.'),
             () => console.warn('Tileset not found — falling back to color tiles.'),
         );
