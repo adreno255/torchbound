@@ -44,6 +44,9 @@ import {
 // ============================================================
 
 new p5((p) => {
+    // ── Assets ───────────────────────────────────────────────
+    let tilesetImg = null;
+
     // ── State ────────────────────────────────────────────────
     let debugMode = false;
     let scaleFactor = 1;
@@ -84,6 +87,18 @@ new p5((p) => {
     let torchEffectTimer = 0;
     let visionEffectTimer = 0;
     let timeBonusTextTimer = 0;
+
+    // ── p5 Preload ───────────────────────────────────────────
+    // Loads the dungeon tileset before setup() runs.
+    // Place torchbound_tileset.png in the same directory as index.html.
+
+    p.preload = () => {
+        tilesetImg = p.loadImage(
+            'assets/dungeon/torchbound_tileset.png',
+            () => console.log('Tileset loaded.'),
+            () => console.warn('Tileset not found — falling back to color tiles.'),
+        );
+    };
 
     // ── p5 Core ──────────────────────────────────────────────
 
@@ -261,6 +276,7 @@ new p5((p) => {
             gridRows,
             gridColumns,
             isTrapActiveFn: (tile, x, y) => isTrapActive(tile, x, y, trapTimer),
+            tilesetImg, // ← pass the loaded tileset image
         });
         drawPlayer(p, player);
         drawIntroCountdown(p, { gamePhase, introTimer, fogOpacity });
