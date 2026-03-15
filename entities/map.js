@@ -99,6 +99,59 @@ const TILES = {
     fl_shad_iso: rc(6, 4), // wall above, isolated
 };
 
+// ── Trap animation config ─────────────────────────────────────────────────
+// Each entry: { row, activeFrames, inactiveFrames, activeMsPerFrame, inactiveMsPerFrame }
+const TRAP_ANIM = {
+    [TILE_MAP.fireTrap]: {
+        row: 0,
+        activeFrames: 8,
+        inactiveFrames: 4,
+        activeMsPerFrame: 250, // 2000ms / 8
+        inactiveMsPerFrame: 375, // 1500ms / 4
+    },
+    [TILE_MAP.resetTrap]: {
+        row: 1,
+        activeFrames: 6,
+        inactiveFrames: 4,
+        activeMsPerFrame: 167, // 1000ms / 6
+        inactiveMsPerFrame: 500, // 2000ms / 4
+    },
+    [TILE_MAP.darknessTrap]: {
+        row: 2,
+        activeFrames: 6,
+        inactiveFrames: 4,
+        activeMsPerFrame: 250, // 1500ms / 6
+        inactiveMsPerFrame: 375, // 1500ms / 4
+    },
+};
+
+/**
+ * Returns the source { sx, sy } in traps.png for a given trap tile
+ * at the current trapTimer value.
+ *
+ * @param {number} tileId   — TILE_MAP.fireTrap / resetTrap / darknessTrap
+ * @param {number} trapTimer — global ms elapsed (from main.js state)
+ * @param {boolean} active  — whether the trap is currently in its active phase
+ * @returns {{ sx: number, sy: number }}
+ */
+export function trapFrameSrc(tileId, trapTimer, active) {
+    const cfg = TRAP_ANIM[tileId];
+    if (!cfg) return { sx: 0, sy: 0 };
+
+    let col;
+    if (active) {
+        const frameIndex =
+            Math.floor(trapTimer / cfg.activeMsPerFrame) % cfg.activeFrames;
+        col = frameIndex;
+    } else {
+        const frameIndex =
+            Math.floor(trapTimer / cfg.inactiveMsPerFrame) % cfg.inactiveFrames;
+        col = cfg.activeFrames + frameIndex;
+    }
+
+    return { sx: col * T, sy: cfg.row * T };
+}
+
 // ── Overlay colors ────────────────────────────────────────────────────────
 const OVR = {
     fireTrapActive: [200, 80, 50, 200],
@@ -232,13 +285,31 @@ function drawOverlay(p, x, y, [r, g, b, a]) {
 // ── Public API ────────────────────────────────────────────────────────────
 
 /**
- * Draws the maze in two passes so wall tiles correctly overdraw floor shadows.
- * Pass 1: all floor tiles (with shadow variants where wall is above).
- * Pass 2: all wall tiles (clean 32×32, boundary-aware tile selection).
+ * Draws the maze in two passes.
+ * Pass 1: floor tiles, power-ups, and animated trap sprites.
+ * Pass 2: wall tiles drawn on top.
+ *
+ * @param {object}   p
+ * @param {object}   params
+ * @param {number[][]} params.maze
+ * @param {number}   params.gridRows
+ * @param {number}   params.gridColumns
+ * @param {function} params.isTrapActiveFn  (tileId, x, y) => boolean
+ * @param {number}   params.trapTimer       ms elapsed — drives trap animation frames
+ * @param {object}   [params.tilesetImg]    p5.Image — torchbound_tileset.png
+ * @param {object}   [params.trapSheetImg]  p5.Image — traps.png
  */
 export function drawGrid(
     p,
-    { maze, gridRows, gridColumns, isTrapActiveFn, tilesetImg },
+    {
+        maze,
+        gridRows,
+        gridColumns,
+        isTrapActiveFn,
+        trapTimer,
+        tilesetImg,
+        trapSheetImg,
+    },
 ) {
     p.noStroke();
 
@@ -330,30 +401,38 @@ export function drawGrid(
                     p.text('👁', dx + T / 2, dy + T / 2);
                     break;
                 default:
+                    // ── Animated trap sprites ─────────────────────────────
                     if (TRAPS[tile]) {
                         const active = isTrapActiveFn(tile, x, y);
-                        let ovr;
-                        if (tile === TILE_MAP.fireTrap)
-                            ovr = active
-                                ? OVR.fireTrapActive
-                                : OVR.fireTrapInactive;
-                        else if (tile === TILE_MAP.resetTrap)
-                            ovr = active
-                                ? OVR.resetTrapActive
-                                : OVR.resetTrapInactive;
-                        else if (tile === TILE_MAP.darknessTrap)
-                            ovr = active
-                                ? OVR.darknessTrapActive
-                                : OVR.darknessTrapInactive;
-                        if (ovr) {
-                            drawOverlay(p, x, y, ovr);
-                            if (active) {
-                                p.noFill();
-                                p.stroke(ovr[0], ovr[1], ovr[2], 130);
-                                p.strokeWeight(2);
-                                p.rect(dx + 3, dy + 3, T - 6, T - 6, 4);
-                                p.noStroke();
-                            }
+                        if (trapSheetImg) {
+                            // Draw frame from spritesheet
+                            const src = trapFrameSrc(tile, trapTimer, active);
+                            p.image(
+                                trapSheetImg,
+                                dx,
+                                dy,
+                                T,
+                                T,
+                                src.sx,
+                                src.sy,
+                                T,
+                                T,
+                            );
+                        } else {
+                            // Fallback: plain colored rect (no spritesheet loaded)
+                            const FALLBACK = {
+                                [TILE_MAP.fireTrap]: active
+                                    ? [200, 80, 50, 200]
+                                    : [80, 40, 30, 130],
+                                [TILE_MAP.resetTrap]: active
+                                    ? [150, 0, 255, 200]
+                                    : [60, 20, 100, 130],
+                                [TILE_MAP.darknessTrap]: active
+                                    ? [10, 10, 10, 230]
+                                    : [30, 20, 50, 130],
+                            };
+                            const ovr = FALLBACK[tile];
+                            if (ovr) drawOverlay(p, x, y, ovr);
                         }
                     }
                     break;
