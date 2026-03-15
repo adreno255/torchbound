@@ -41,6 +41,9 @@ export const TILE_MAP = {
     torchPowerUp: 8,
     visionPowerUp: 9,
     consumedPowerUp: 10,
+    spentTime: 11,
+    spentTorch: 12,
+    spentVision: 13,
 };
 
 export const TRAPS = {
