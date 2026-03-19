@@ -134,18 +134,43 @@ const TRAP_ANIM = {
  * @param {boolean} active  — whether the trap is currently in its active phase
  * @returns {{ sx: number, sy: number }}
  */
-export function trapFrameSrc(tileId, trapTimer, active) {
+/**
+ * Returns the source { sx, sy } in traps.png for a given trap tile,
+ * using the same offset logic as isTrapActive() so the animation frame
+ * always starts at 0 at the beginning of each phase for this specific tile.
+ *
+ * @param {number}  tileId    — TILE_MAP.fireTrap / resetTrap / darknessTrap
+ * @param {number}  x         — tile grid column (for positional offset)
+ * @param {number}  y         — tile grid row    (for positional offset)
+ * @param {number}  trapTimer — global ms elapsed (from main.js state)
+ * @param {boolean} active    — whether the trap is currently in its active phase
+ * @returns {{ sx: number, sy: number }}
+ */
+export function trapFrameSrc(tileId, x, y, trapTimer, active) {
     const cfg = TRAP_ANIM[tileId];
     if (!cfg) return { sx: 0, sy: 0 };
 
+    const trap = TRAPS[tileId];
+    const cycle = trap.activeTime + trap.inactiveTime;
+
+    // Apply the same positional offset used by isTrapActive so frame 0
+    // always aligns with the start of this tile's active/inactive phase.
+    const offset = trap.randomized ? (x * 777 + y * 999) % cycle : 0;
+    const positionInCycle = (trapTimer + offset) % cycle;
+
     let col;
     if (active) {
+        // positionInCycle is within [0, activeTime) — map to active frames
         const frameIndex =
-            Math.floor(trapTimer / cfg.activeMsPerFrame) % cfg.activeFrames;
+            Math.floor(positionInCycle / cfg.activeMsPerFrame) %
+            cfg.activeFrames;
         col = frameIndex;
     } else {
+        // positionInCycle is within [activeTime, cycle) — map to inactive frames
+        const positionInInactive = positionInCycle - trap.activeTime;
         const frameIndex =
-            Math.floor(trapTimer / cfg.inactiveMsPerFrame) % cfg.inactiveFrames;
+            Math.floor(positionInInactive / cfg.inactiveMsPerFrame) %
+            cfg.inactiveFrames;
         col = cfg.activeFrames + frameIndex;
     }
 
@@ -405,8 +430,15 @@ export function drawGrid(
                     if (TRAPS[tile]) {
                         const active = isTrapActiveFn(tile, x, y);
                         if (trapSheetImg) {
-                            // Draw frame from spritesheet
-                            const src = trapFrameSrc(tile, trapTimer, active);
+                            // Draw frame from spritesheet — pass x,y so the offset
+                            // matches isTrapActive and frame 0 aligns with phase start
+                            const src = trapFrameSrc(
+                                tile,
+                                x,
+                                y,
+                                trapTimer,
+                                active,
+                            );
                             p.image(
                                 trapSheetImg,
                                 dx,

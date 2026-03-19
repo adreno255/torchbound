@@ -94,7 +94,7 @@ new p5((p) => {
 
     p.preload = () => {
         tilesetImg = p.loadImage(
-            'assets/dungeon/torchbound_tileset-dark.png',
+            'assets/maps/map-dark-v2.png',
             () => console.log('Tileset loaded.'),
             () =>
                 console.warn(
@@ -102,7 +102,7 @@ new p5((p) => {
                 ),
         );
         trapSheetImg = p.loadImage(
-            'assets/traps/traps.png',
+            'assets/traps/traps-dark.png',
             () => console.log('Trap sheet loaded.'),
             () =>
                 console.warn(
