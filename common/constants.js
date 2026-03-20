@@ -46,10 +46,25 @@ export const TILE_MAP = {
     spentVision: 13,
 };
 
+/**
+ * Returns the spike/fire trap damage amount for the given level.
+ *   Levels 1–2 →  10 HP
+ *   Levels 3–4 →  25 HP
+ *   Level  5   →  50 HP
+ *
+ * @param {number} level - current level (1–5)
+ * @returns {number}
+ */
+export function getFireTrapDamage(level) {
+    if (level <= 2) return 10;
+    if (level <= 4) return 25;
+    return 50;
+}
+
 export const TRAPS = {
     4: {
         name: 'fire',
-        damage: 25,
+        // damage is level-dependent — use getFireTrapDamage(level) at runtime
         activeTime: 2000,
         inactiveTime: 1500,
         type: 'damage',

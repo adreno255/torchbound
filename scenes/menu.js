@@ -98,26 +98,55 @@ export function drawNameInput(p, { playerName, onBack }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Draws the level selection screen.
+ * Unlocked levels show as normal buttons; locked levels are greyed out
+ * with a 🔒 icon and do not respond to clicks.
+ *
  * @param {object} p
  * @param {object} params
- * @param {object}   params.levels  - LEVELS config object
- * @param {function} params.onSelect - (levelIndex) => void
+ * @param {object}   params.levels           - LEVELS config object
+ * @param {number}   params.maxUnlockedLevel - highest level the player may play
+ * @param {function} params.onSelect         - (levelIndex) => void
  * @param {function} params.onBack
  */
-export function drawLevelSelect(p, { levels, onSelect, onBack }) {
+export function drawLevelSelect(
+    p,
+    { levels, maxUnlockedLevel, onSelect, onBack },
+) {
     p.textAlign(p.CENTER, p.CENTER);
     p.fill(255);
     p.textSize(32);
     p.text('SELECT A LEVEL', p.windowWidth / 2, 100);
 
-    for (let i = 1; i <= Object.keys(levels).length; i++) {
-        drawButton(
-            p,
-            `Level ${i}: ${levels[i].name}`,
-            p.windowWidth / 2,
-            100 + i * 80,
-            () => onSelect(i),
-        );
+    const levelCount = Object.keys(levels).length;
+
+    for (let i = 1; i <= levelCount; i++) {
+        const unlocked = i <= maxUnlockedLevel;
+        const y = 100 + i * 80;
+
+        if (unlocked) {
+            drawButton(
+                p,
+                `Level ${i}: ${levels[i].name}`,
+                p.windowWidth / 2,
+                y,
+                () => onSelect(i),
+            );
+        } else {
+            // ── Locked level — greyed-out, non-interactive button ──────────
+            const btnW = 300;
+            const btnH = 50;
+            const cx = p.windowWidth / 2;
+
+            p.fill(30);
+            p.rectMode(p.CENTER);
+            p.rect(cx, y, btnW, btnH, 5);
+
+            p.fill(90);
+            p.textSize(20);
+            p.textAlign(p.CENTER, p.CENTER);
+            p.text(`🔒  Level ${i}: ${levels[i].name}`, cx, y);
+        }
     }
 
     drawButton(p, 'BACK', p.windowWidth / 2, p.windowHeight - 80, onBack);

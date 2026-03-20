@@ -97,6 +97,10 @@ const TILES = {
     fl_shad_r: rc(6, 2), // wall above continues right
     fl_shad_l: rc(6, 3), // wall above continues left
     fl_shad_iso: rc(6, 4), // wall above, isolated
+
+    // Special floor tiles — row 7
+    start_tile: rc(7, 0), // entrance rune (top-left of maze)
+    exit_tile: rc(7, 1), // exit marker  (bottom-right of maze)
 };
 
 // ── Trap animation config ─────────────────────────────────────────────────
@@ -177,17 +181,52 @@ export function trapFrameSrc(tileId, x, y, trapTimer, active) {
     return { sx: col * T, sy: cfg.row * T };
 }
 
-// ── Overlay colors ────────────────────────────────────────────────────────
+// ── Powerup animation config ──────────────────────────────────────────────
+// powerups.png — 256×96px, 8 cols × 3 rows, each frame 32×32px, RGBA.
+//   Row 0: Time Crystal  — cols 0-5 idle (150ms/frame), cols 6-7 spent (500ms/frame)
+//   Row 1: Torch Powerup — cols 0-5 idle (150ms/frame), cols 6-7 spent (500ms/frame)
+//   Row 2: Vision Orb    — cols 0-5 idle (150ms/frame), cols 6-7 spent (500ms/frame)
+const POWERUP_ANIM = {
+    [TILE_MAP.timePowerUp]: { row: 0 },
+    [TILE_MAP.torchPowerUp]: { row: 1 },
+    [TILE_MAP.visionPowerUp]: { row: 2 },
+    // Spent variants (tile changes after collection)
+    [TILE_MAP.spentTime]: { row: 0, spent: true },
+    [TILE_MAP.spentTorch]: { row: 1, spent: true },
+    [TILE_MAP.spentVision]: { row: 2, spent: true },
+};
+
+const POWERUP_IDLE_FRAMES = 6;
+const POWERUP_SPENT_FRAMES = 2;
+const POWERUP_IDLE_MS = 150; // per frame → 900ms full cycle
+const POWERUP_SPENT_MS = 500; // per frame → 1000ms slow pulse
+
+/**
+ * Returns { sx, sy } into powerups.png for the given powerup tile
+ * at the current millis() value.
+ *
+ * @param {number} tileId   — TILE_MAP.timePowerUp etc.
+ * @param {number} millis   — p.millis() from main.js
+ * @returns {{ sx: number, sy: number }}
+ */
+export function powerupFrameSrc(tileId, millis) {
+    const cfg = POWERUP_ANIM[tileId];
+    if (!cfg) return { sx: 0, sy: 0 };
+
+    let col;
+    if (cfg.spent) {
+        col =
+            POWERUP_IDLE_FRAMES +
+            (Math.floor(millis / POWERUP_SPENT_MS) % POWERUP_SPENT_FRAMES);
+    } else {
+        col = Math.floor(millis / POWERUP_IDLE_MS) % POWERUP_IDLE_FRAMES;
+    }
+
+    return { sx: col * T, sy: cfg.row * T };
+}
+
+// ── Overlay colors (start / exit only) ───────────────────────────────────
 const OVR = {
-    fireTrapActive: [200, 80, 50, 200],
-    fireTrapInactive: [80, 40, 30, 130],
-    resetTrapActive: [150, 0, 255, 200],
-    resetTrapInactive: [60, 20, 100, 130],
-    darknessTrapActive: [10, 10, 10, 230],
-    darknessTrapInactive: [30, 20, 50, 130],
-    timePowerUp: [255, 255, 0, 190],
-    torchPowerUp: [255, 150, 0, 190],
-    visionPowerUp: [0, 255, 255, 190],
     start: [50, 200, 50, 170],
     exit: [50, 100, 200, 220],
 };
@@ -332,8 +371,10 @@ export function drawGrid(
         gridColumns,
         isTrapActiveFn,
         trapTimer,
+        millis,
         tilesetImg,
         trapSheetImg,
+        powerupSheetImg,
     },
 ) {
     p.noStroke();
@@ -347,6 +388,7 @@ export function drawGrid(
             const dx = x * T;
             const dy = y * T;
 
+            // Floor base
             if (tilesetImg) {
                 drawTile(
                     p,
@@ -360,71 +402,66 @@ export function drawGrid(
                 p.rect(dx, dy, T, T);
             }
 
-            // Special tile overlays
+            // ── Special tiles overlaid on floor ──────────────────────────
             switch (tile) {
                 case TILE_MAP.start:
-                    drawOverlay(p, x, y, OVR.start);
+                    // Draw the start rune tile from row 7 of the tileset,
+                    // falling back to a green overlay if tileset lacks row 7.
+                    if (tilesetImg) {
+                        drawTile(p, tilesetImg, TILES.start_tile, dx, dy);
+                    } else {
+                        drawOverlay(p, x, y, OVR.start);
+                    }
                     break;
+
                 case TILE_MAP.exit:
-                    drawOverlay(p, x, y, OVR.exit);
+                    // Draw the exit marker tile from row 7 of the tileset.
+                    if (tilesetImg) {
+                        drawTile(p, tilesetImg, TILES.exit_tile, dx, dy);
+                    } else {
+                        drawOverlay(p, x, y, OVR.exit);
+                    }
                     break;
+
                 case TILE_MAP.timePowerUp:
-                    drawOverlay(p, x, y, OVR.timePowerUp);
-                    p.fill(0, 0, 0, 150);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(T * 0.55);
-                    p.text('⏱', dx + T / 2, dy + T / 2);
-                    break;
                 case TILE_MAP.torchPowerUp:
-                    drawOverlay(p, x, y, OVR.torchPowerUp);
-                    p.fill(0, 0, 0, 150);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(T * 0.55);
-                    p.text('🕯', dx + T / 2, dy + T / 2);
-                    break;
                 case TILE_MAP.visionPowerUp:
-                    drawOverlay(p, x, y, OVR.visionPowerUp);
-                    p.fill(0, 0, 0, 150);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(T * 0.55);
-                    p.text('👁', dx + T / 2, dy + T / 2);
-                    break;
                 case TILE_MAP.spentTime:
-                    p.fill(
-                        OVR.timePowerUp[0],
-                        OVR.timePowerUp[1],
-                        OVR.timePowerUp[2],
-                        120,
-                    );
-                    p.noStroke();
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(T * 0.5);
-                    p.text('⏱', dx + T / 2, dy + T / 2);
-                    break;
                 case TILE_MAP.spentTorch:
-                    p.fill(
-                        OVR.torchPowerUp[0],
-                        OVR.torchPowerUp[1],
-                        OVR.torchPowerUp[2],
-                        120,
-                    );
-                    p.noStroke();
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(T * 0.5);
-                    p.text('🕯', dx + T / 2, dy + T / 2);
-                    break;
                 case TILE_MAP.spentVision:
-                    p.fill(
-                        OVR.visionPowerUp[0],
-                        OVR.visionPowerUp[1],
-                        OVR.visionPowerUp[2],
-                        120,
-                    );
-                    p.noStroke();
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(T * 0.5);
-                    p.text('👁', dx + T / 2, dy + T / 2);
+                    if (powerupSheetImg) {
+                        const src = powerupFrameSrc(tile, millis);
+                        p.image(
+                            powerupSheetImg,
+                            dx,
+                            dy,
+                            T,
+                            T,
+                            src.sx,
+                            src.sy,
+                            T,
+                            T,
+                        );
+                    } else {
+                        // Fallback colored rects
+                        const PU_FALLBACK = {
+                            [TILE_MAP.timePowerUp]: [255, 255, 0, 190],
+                            [TILE_MAP.torchPowerUp]: [255, 150, 0, 190],
+                            [TILE_MAP.visionPowerUp]: [0, 255, 255, 190],
+                            [TILE_MAP.spentTime]: [100, 100, 0, 80],
+                            [TILE_MAP.spentTorch]: [100, 60, 0, 80],
+                            [TILE_MAP.spentVision]: [0, 100, 100, 80],
+                        };
+                        const ovr = PU_FALLBACK[tile];
+                        if (ovr) drawOverlay(p, x, y, ovr);
+                    }
                     break;
+
+                case TILE_MAP.consumedPowerUp:
+                    p.fill(20, 15, 25, 120);
+                    p.rect(dx + 5, dy + 5, T - 10, T - 10, 3);
+                    break;
+
                 default:
                     // ── Animated trap sprites ─────────────────────────────
                     if (TRAPS[tile]) {
@@ -476,10 +513,8 @@ export function drawGrid(
     for (let y = 0; y < gridRows; y++) {
         for (let x = 0; x < gridColumns; x++) {
             if (maze[y][x] !== TILE_MAP.wall) continue;
-
             const dx = x * T;
             const dy = y * T;
-
             if (tilesetImg) {
                 drawTile(
                     p,

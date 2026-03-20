@@ -42,11 +42,81 @@ import {
 } from './common/leaderboard.js';
 
 // ============================================================
+// Level-unlock helpers (persisted in localStorage)
+// ============================================================
+
+const UNLOCK_KEY = 'torchbound_unlocked';
+
+/**
+ * Returns the highest level the player has unlocked.
+ * Always at least 1 (level 1 is free).
+ */
+function getMaxUnlockedLevel() {
+    return parseInt(localStorage.getItem(UNLOCK_KEY) || '1', 10);
+}
+
+/**
+ * Persists the highest unlocked level, but never decreases it.
+ */
+function unlockLevel(level) {
+    const current = getMaxUnlockedLevel();
+    if (level > current) {
+        localStorage.setItem(UNLOCK_KEY, String(level));
+    }
+}
+
+/**
+ * Returns true if `level` is available to play.
+ */
+function isLevelUnlocked(level) {
+    return level <= getMaxUnlockedLevel();
+}
+
+// ============================================================
+// Per-level asset mapping
+// ============================================================
+
+/**
+ * Returns the asset paths to use for a given level number.
+ *  Levels 1-2 → map-light  + traps-light
+ *  Levels 3-4 → map-dark   + traps-light
+ *  Level  5   → map-dark-v2 + traps-dark
+ */
+function assetsForLevel(level) {
+    if (level <= 2) {
+        return {
+            tileset: 'assets/maps/map-light.png',
+            traps: 'assets/traps/traps-light.png',
+        };
+    }
+    if (level === 3) {
+        return {
+            tileset: 'assets/maps/map-dark.png',
+            traps: 'assets/traps/traps-light.png',
+        };
+    }
+    if (level === 4) {
+        return {
+            tileset: 'assets/maps/map-dark.png',
+            traps: 'assets/traps/traps-dark.png',
+        };
+    }
+    return {
+        tileset: 'assets/maps/map-dark-v2.png',
+        traps: 'assets/traps/traps-dark.png',
+    };
+}
+
+// ============================================================
 
 new p5((p) => {
     // ── Assets ───────────────────────────────────────────────
     let tilesetImg = null;
     let trapSheetImg = null;
+    let powerupSheetImg = null;
+
+    // Pre-loaded image cache so we never reload the same file twice
+    const imgCache = {};
 
     // ── State ────────────────────────────────────────────────
     let debugMode = false;
@@ -90,25 +160,26 @@ new p5((p) => {
     let timeBonusTextTimer = 0;
 
     // ── p5 Preload ───────────────────────────────────────────
-    // Loads the dungeon tileset before setup() runs.
+    // Pre-loads every tileset/trap variant plus the shared powerup sheet.
+    // They are cached in imgCache so loadLevel() can swap them instantly.
 
     p.preload = () => {
-        tilesetImg = p.loadImage(
+        const paths = [
+            'assets/maps/map-light.png',
+            'assets/maps/map-dark.png',
             'assets/maps/map-dark-v2.png',
-            () => console.log('Tileset loaded.'),
-            () =>
-                console.warn(
-                    'Tileset not found — falling back to color tiles.',
-                ),
-        );
-        trapSheetImg = p.loadImage(
+            'assets/traps/traps-light.png',
             'assets/traps/traps-dark.png',
-            () => console.log('Trap sheet loaded.'),
-            () =>
-                console.warn(
-                    'traps.png not found — falling back to colored rects.',
-                ),
-        );
+            'assets/powerups/powerups.png',
+        ];
+
+        for (const path of paths) {
+            imgCache[path] = p.loadImage(
+                path,
+                () => console.log(`Loaded: ${path}`),
+                () => console.warn(`Not found: ${path}`),
+            );
+        }
     };
 
     // ── p5 Core ──────────────────────────────────────────────
@@ -118,6 +189,7 @@ new p5((p) => {
         p.pixelDensity(1);
         p.noSmooth();
         scaleFactor = getScaleFactor(p);
+        powerupSheetImg = imgCache['assets/powerups/powerups.png'] || null;
     };
 
     p.draw = () => {
@@ -219,6 +291,11 @@ new p5((p) => {
     function loadLevel(difficulty) {
         if (!LEVELS[difficulty]) return;
 
+        // Swap tileset and trap sheet for this level
+        const assets = assetsForLevel(difficulty);
+        tilesetImg = imgCache[assets.tileset] || null;
+        trapSheetImg = imgCache[assets.traps] || null;
+
         const levelData = LEVELS[difficulty];
         maze = levelData.maze;
         gridRows = maze.length;
@@ -288,8 +365,10 @@ new p5((p) => {
             gridColumns,
             isTrapActiveFn: (tile, x, y) => isTrapActive(tile, x, y, trapTimer),
             trapTimer,
+            millis: p.millis(),
             tilesetImg,
             trapSheetImg,
+            powerupSheetImg,
         });
         drawPlayer(p, player);
         drawIntroCountdown(p, { gamePhase, introTimer, fogOpacity });
@@ -350,6 +429,7 @@ new p5((p) => {
 
         const trapResult = checkStandingOnTrap({
             currentGameState,
+            currentLevel,
             player,
             maze,
             trapTimer,
@@ -423,6 +503,9 @@ new p5((p) => {
         if (score > levelScores[currentLevel])
             levelScores[currentLevel] = score;
 
+        // Unlock the next level
+        unlockLevel(currentLevel + 1);
+
         victoryMessage = `Final Score: ${score}`;
         currentGameState = GAME_STATE.VICTORY;
         timerRunning = false;
@@ -463,7 +546,10 @@ new p5((p) => {
             case GAME_STATE.LEVEL_SELECT:
                 drawLevelSelect(p, {
                     levels: LEVELS,
+                    maxUnlockedLevel: getMaxUnlockedLevel(),
                     onSelect: (i) => {
+                        // Guard: silently ignore clicks on locked levels
+                        if (!isLevelUnlocked(i)) return;
                         currentLevel = i;
                         loadLevel(i);
                         currentGameState = GAME_STATE.PLAYING;

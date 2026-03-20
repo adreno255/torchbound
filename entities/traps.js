@@ -8,6 +8,7 @@ import {
     TRAP_DAMAGE_INTERVAL_MS,
     DARKNESS_DURATION,
     GAME_STATE,
+    getFireTrapDamage,
 } from '../common/constants.js';
 
 /**
@@ -36,6 +37,7 @@ export function isTrapActive(tileId, x, y, trapTimer) {
  *
  * @param {object} params
  * @param {string}   params.currentGameState
+ * @param {number}   params.currentLevel       - used to scale fire trap damage
  * @param {object}   params.player
  * @param {number[][]} params.maze
  * @param {number}   params.trapTimer
@@ -51,6 +53,7 @@ export function isTrapActive(tileId, x, y, trapTimer) {
 export function checkStandingOnTrap(params) {
     const {
         currentGameState,
+        currentLevel,
         player,
         maze,
         trapTimer,
@@ -91,7 +94,9 @@ export function checkStandingOnTrap(params) {
     switch (trap.type) {
         case 'damage':
             if (newDamageTimer <= 0) {
-                onDamage(trap.damage);
+                // Resolve damage amount from the current level
+                const damage = getFireTrapDamage(currentLevel ?? 1);
+                onDamage(damage);
                 newDamageTimer = TRAP_DAMAGE_INTERVAL_MS;
             }
             break;
