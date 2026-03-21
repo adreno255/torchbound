@@ -9,6 +9,7 @@ import {
     GAME_STATE,
     GAME_PHASE,
     TILE_MAP,
+    TORCH_RADIUS_BASE,
 } from './common/constants.js';
 import { LEVELS } from './common/levels.js';
 import { getScaleFactor, calculateScore } from './common/utils.js';
@@ -18,6 +19,11 @@ import {
     movePlayer,
     takeDamage,
     drawPlayer,
+    triggerHitAnim,
+    triggerFallAnim,
+    triggerDimAnim,
+    triggerExtinguishAnim,
+    setAnim,
 } from './entities/player.js';
 import { applyCamera, followPlayer } from './entities/camera.js';
 import { drawGrid, createFogLayer, renderFog } from './entities/map.js';
@@ -114,6 +120,7 @@ new p5((p) => {
     let tilesetImg = null;
     let trapSheetImg = null;
     let powerupSheetImg = null;
+    let playerImg = null;
 
     // Pre-loaded image cache so we never reload the same file twice
     const imgCache = {};
@@ -128,7 +135,7 @@ new p5((p) => {
 
     let enableCamera = true;
     let enableFog = true;
-    let torchRadius = 3;
+    let torchRadius = TORCH_RADIUS_BASE;
 
     let timeLeft = 0;
     let lastTimeStamp = 0;
@@ -159,6 +166,20 @@ new p5((p) => {
     let visionEffectTimer = 0;
     let timeBonusTextTimer = 0;
 
+    // Deferred-action timers
+    // pendingReset: hold the fall anim in place before teleporting to start
+    let pendingReset = false;
+    let resetDelayTimer = 0;
+    const FALL_ANIM_MS = 5 * 160; // 800 ms — fall anim total duration
+
+    // pendingGameOver: hold the dead/extinguish anim before showing game over
+    let pendingGameOver = false;
+    let gameOverDelayTimer = 0;
+
+    // wasDark: edge-detect darkness-effect so triggerDimAnim fires once per
+    // darkness event rather than every tick while darknessEffectTimer > 0
+    let wasDark = false;
+
     // ── p5 Preload ───────────────────────────────────────────
     // Pre-loads every tileset/trap variant plus the shared powerup sheet.
     // They are cached in imgCache so loadLevel() can swap them instantly.
@@ -171,6 +192,7 @@ new p5((p) => {
             'assets/traps/traps-light.png',
             'assets/traps/traps-dark.png',
             'assets/powerups/powerups.png',
+            'assets/player/player.png',
         ];
 
         for (const path of paths) {
@@ -190,6 +212,7 @@ new p5((p) => {
         p.noSmooth();
         scaleFactor = getScaleFactor(p);
         powerupSheetImg = imgCache['assets/powerups/powerups.png'] || null;
+        playerImg = imgCache['assets/player/player.png'] || null;
     };
 
     p.draw = () => {
@@ -328,6 +351,11 @@ new p5((p) => {
         torchEffectTimer = 0;
         visionEffectTimer = 0;
         timeBonusTextTimer = 0;
+        pendingReset = false;
+        resetDelayTimer = 0;
+        pendingGameOver = false;
+        gameOverDelayTimer = 0;
+        wasDark = false;
     }
 
     // ── World Rendering ───────────────────────────────────────
@@ -370,7 +398,7 @@ new p5((p) => {
             trapSheetImg,
             powerupSheetImg,
         });
-        drawPlayer(p, player);
+        drawPlayer(p, player, playerImg, safeDt);
         drawIntroCountdown(p, { gamePhase, introTimer, fogOpacity });
 
         renderFog(p, fogLayer, {
@@ -384,7 +412,12 @@ new p5((p) => {
             torchRadius,
         });
 
-        if (gamePhase === GAME_PHASE.PLAYING) checkExitReached();
+        if (
+            gamePhase === GAME_PHASE.PLAYING &&
+            !pendingGameOver &&
+            !pendingReset
+        )
+            checkExitReached();
     }
 
     // ── Game Phase (Intro Animation) ──────────────────────────
@@ -414,6 +447,44 @@ new p5((p) => {
         )
             return;
 
+        // ── Fix 3 & 4: pending game-over countdown ────────────
+        // While this is running the world keeps rendering so the
+        // dead/extinguish anim plays out in full before we switch screens.
+        if (pendingGameOver) {
+            gameOverDelayTimer -= dt;
+
+            // Fix 4: during extinguish, drain torch radius to 0 over the
+            // same window so the fog closes in as the flame dies.
+            if (player.animState === 'EXTINGUISH') {
+                torchRadius = Math.max(
+                    0,
+                    torchRadius -
+                        (torchRadius / Math.max(gameOverDelayTimer + dt, 1)) *
+                            dt,
+                );
+            }
+
+            if (gameOverDelayTimer <= 0) {
+                pendingGameOver = false;
+                currentGameState = GAME_STATE.GAMEOVER;
+                timerRunning = false;
+            }
+            // Skip all other logic while waiting — no movement, no new traps
+            return;
+        }
+
+        // ── Fix 1: pending reset countdown ───────────────────
+        // Fall anim plays at the trap tile; teleport fires when timer expires.
+        if (pendingReset) {
+            resetDelayTimer -= dt;
+            if (resetDelayTimer <= 0) {
+                pendingReset = false;
+                findStartTile(player, maze, gridRows, gridColumns);
+            }
+            // Still tick animation/fog but block all other input/logic
+            return;
+        }
+
         moveTimer += dt;
         trapTimer += dt;
         trapDamageTimer -= dt;
@@ -439,13 +510,36 @@ new p5((p) => {
             torchEffectTimer,
             dt,
             onDamage: (amount) => {
+                triggerHitAnim(player);
                 if (takeDamage(player, amount)) onPlayerDeath();
             },
-            onReset: () => findStartTile(player, maze, gridRows, gridColumns),
+            // Fix 1: start delay instead of teleporting immediately
+            onReset: () => {
+                triggerFallAnim(player);
+                pendingReset = true;
+                resetDelayTimer = FALL_ANIM_MS;
+            },
+            onDarkness: () => {
+                // handled below via edge-detection — do nothing here
+            },
         });
         trapDamageTimer = trapResult.trapDamageTimer;
         darknessEffectTimer = trapResult.darknessEffectTimer;
         torchRadius = trapResult.torchRadius;
+
+        // Fix 2: drive dim anim from darknessEffectTimer, not from onDarkness.
+        // Trigger only on the leading edge (wasDark false → true transition).
+        const isDark = darknessEffectTimer > 0;
+        if (isDark && !wasDark) {
+            triggerDimAnim(player);
+        }
+        // While dark and dim anim has finished its 3 frames, hold on last frame
+        // (animDone stays true — player.js already holds on the last frame).
+        // When darkness expires, return to idle.
+        if (!isDark && wasDark && player.animState === 'DIM') {
+            setAnim(player, 'IDLE');
+        }
+        wasDark = isDark;
 
         const puResult = checkPowerUps({
             currentGameState,
@@ -482,14 +576,20 @@ new p5((p) => {
 
     function onPlayerDeath() {
         lossReason = `You succumbed to the traps.\nFinal Score: ${calculateScore(player.hp, timeLeft)}`;
-        currentGameState = GAME_STATE.GAMEOVER;
         timerRunning = false;
+        // Fix 3: defer game-over screen until dead anim finishes (800 ms)
+        pendingGameOver = true;
+        gameOverDelayTimer = 12 * 200; // DEAD: 4 frames × 200 ms
     }
 
     function onTimeUp() {
+        triggerExtinguishAnim(player);
         lossReason = `Your torch burned out in the darkness.\nFinal Score: ${calculateScore(player.hp, timeLeft)}`;
-        currentGameState = GAME_STATE.GAMEOVER;
         timerRunning = false;
+        // Fix 3 & 4: defer game-over screen until extinguish anim + torch
+        // fade finishes (800 ms for the anim, then a brief extra beat)
+        pendingGameOver = true;
+        gameOverDelayTimer = 12 * 200 + 400; // 1200 ms total
     }
 
     function checkExitReached() {

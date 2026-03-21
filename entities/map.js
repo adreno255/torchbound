@@ -548,8 +548,11 @@ export function createFogLayer(p, worldWidth, worldHeight) {
 }
 
 /**
- * Repaints the fog layer based on the player's current position and torch radius.
- * Tiles within the radius are clear; tiles outside fade to black.
+ * Repaints the fog layer based on the player's smooth render position.
+ * Uses renderX/renderY (pixel-space floats) rather than gridX/gridY so
+ * the torch circle glides with the sprite instead of jumping a full tile
+ * per step.  All distance maths is done in pixels; torchRadius is scaled
+ * by TILE_SIZE before comparison so it still reads as "tiles of radius".
  *
  * @param {object}   p
  * @param {object}   fogLayer - p5.Graphics
@@ -557,20 +560,32 @@ export function createFogLayer(p, worldWidth, worldHeight) {
  * @param {object}   params.player
  * @param {number}   params.gridRows
  * @param {number}   params.gridColumns
- * @param {number}   params.torchRadius
+ * @param {number}   params.torchRadius  - radius in tile units (e.g. 3)
  */
 function paintFog(p, fogLayer, { player, gridRows, gridColumns, torchRadius }) {
     fogLayer.clear();
     fogLayer.noStroke();
 
+    // Torch centre in pixel space — use renderX/renderY (smooth) with
+    // a fallback to the logical grid position before the first draw tick.
+    const cx = (player.renderX ?? player.gridX * TILE_SIZE) + TILE_SIZE / 2;
+    const cy = (player.renderY ?? player.gridY * TILE_SIZE) + TILE_SIZE / 2;
+
+    // Convert radius from tile units to pixels.
+    const innerPx = (torchRadius - 1) * TILE_SIZE;
+    const outerPx = (torchRadius + 1) * TILE_SIZE;
+
     for (let y = 0; y < gridRows; y++) {
         for (let x = 0; x < gridColumns; x++) {
-            const dx = x - player.gridX;
-            const dy = y - player.gridY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            // Distance from torch centre to this tile's centre (pixels).
+            const tileCx = x * TILE_SIZE + TILE_SIZE / 2;
+            const tileCy = y * TILE_SIZE + TILE_SIZE / 2;
+            const distance = Math.sqrt(
+                (tileCx - cx) * (tileCx - cx) + (tileCy - cy) * (tileCy - cy),
+            );
 
             const darkness = p.constrain(
-                p.map(distance, torchRadius - 1, torchRadius + 1, 0, 255),
+                p.map(distance, innerPx, outerPx, 0, 255),
                 0,
                 255,
             );

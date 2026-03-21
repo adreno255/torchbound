@@ -9,6 +9,7 @@ import {
     DARKNESS_DURATION,
     GAME_STATE,
     getFireTrapDamage,
+    TORCH_RADIUS_BASE,
 } from '../common/constants.js';
 
 /**
@@ -46,8 +47,9 @@ export function isTrapActive(tileId, x, y, trapTimer) {
  * @param {number}   params.torchRadius
  * @param {number}   params.torchEffectTimer
  * @param {number}   params.dt
- * @param {function} params.onDamage - callback(amount)
- * @param {function} params.onReset  - callback() — teleports player to start
+ * @param {function} params.onDamage  - callback(amount)
+ * @param {function} params.onReset   - callback() — teleports player to start
+ * @param {function} [params.onDarkness] - callback() — darkness trap triggered
  * @returns {{ trapDamageTimer, darknessEffectTimer, torchRadius }}
  */
 export function checkStandingOnTrap(params) {
@@ -64,6 +66,7 @@ export function checkStandingOnTrap(params) {
         dt,
         onDamage,
         onReset,
+        onDarkness,
     } = params;
 
     if (currentGameState !== GAME_STATE.PLAYING) {
@@ -81,8 +84,13 @@ export function checkStandingOnTrap(params) {
 
     if (!trap || !isTrapActive(tile, x, y, trapTimer)) {
         // Gradually restore torch radius when no darkness effect is active
-        if (newDarknessTimer <= 0 && torchRadius < 3 && torchEffectTimer <= 0) {
-            newTorchRadius = torchRadius + (3 - torchRadius) * 0.05;
+        if (
+            newDarknessTimer <= 0 &&
+            torchRadius < TORCH_RADIUS_BASE &&
+            torchEffectTimer <= 0
+        ) {
+            newTorchRadius =
+                torchRadius + (TORCH_RADIUS_BASE - torchRadius) * 0.05;
         }
         return {
             trapDamageTimer: 0,
@@ -105,6 +113,7 @@ export function checkStandingOnTrap(params) {
             break;
         case 'darkness':
             newDarknessTimer = DARKNESS_DURATION;
+            if (onDarkness) onDarkness();
             break;
     }
 

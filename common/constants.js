@@ -11,6 +11,7 @@ export const TRAP_DAMAGE_INTERVAL_MS = 500;
 export const ZOOM = 1.5;
 export const CAMERA_LERP = 0.05;
 export const DARKNESS_DURATION = 5000;
+export const TORCH_RADIUS_BASE = 2;
 
 export const GAME_STATE = {
     MENU: 'menu',

@@ -1,68 +1,137 @@
 // ============================================================
 // entities/player.js
-// Player creation, grid movement, collision, and damage.
+// Player creation, grid movement, collision, damage, and
+// sprite animation state machine.
 //
-// SPRITE NOTE:
-// drawPlayer() currently renders a white rectangle placeholder.
-// Replace the fill+rect block with:
-//   p.image(sprites.player, player.gridX * TILE_SIZE, player.gridY * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+// SPRITE SHEET: assets/sprites/player.png
+//   — 32×32px frames, RGBA, crispEdges
+//   — Sheet is (maxFrames * 32) wide × (28 rows * 32) tall
+//
+// Row index = dirOffset + stateRowBase
+//   dirOffset: S=0, N=1, E=2, W=3
+//
+// stateRowBase | state       | frames | ms/frame
+// -------------|-------------|--------|----------
+//  0           | idle        |   4    |  200
+//  4           | walk        |   6    |  100
+//  8           | hit (spike) |   4    |   80
+// 12           | fall        |   5    |  160
+// 16           | dim         |   3    |  300
+// 20           | extinguish  |   4    |  200
+// 24           | dead        |   4    |  200
+//
+// SMOOTH MOVEMENT
+// gridX / gridY   — logical tile position used by all game logic
+// renderX/renderY — pixel-space floats that exponentially lerp toward
+//   the logical target each frame. drawPlayer() draws at renderX/renderY.
+//   findStartTile() snaps them to avoid a slide from the old position.
 // ============================================================
 
-import { TILE_SIZE, TILE_MAP, MOVE_DELAY_MS } from '../common/constants.js';
+import { TILE_SIZE, MOVE_DELAY_MS } from '../common/constants.js';
+
+const T = TILE_SIZE; // 32
 
 /**
- * Returns a fresh player state object.
+ * Exponential-decay lerp speed — fraction of remaining distance
+ * closed per millisecond.
  *
- * @returns {{ gridX: null, gridY: null, hp: number, maxHp: number }}
+ * At 60 fps (dt ≈ 16 ms):  (1-0.018)^16 ≈ 0.749  → 25 % of gap closed per frame
+ * At 30 fps (dt ≈ 33 ms):  (1-0.018)^33 ≈ 0.547  → 45 % of gap closed per frame
+ * Both converge to < 0.5 px well within the 400 ms move window.
+ * Raise toward 0.025 for snappier feel; lower toward 0.010 for floatier.
  */
+const MOVE_LERP = 0.018;
+
+export const ANIM_STATE = {
+    IDLE: { row: 0, frames: 4, msPerFrame: 400, loop: true },
+    WALK: { row: 4, frames: 6, msPerFrame: 150, loop: true },
+    HIT: { row: 8, frames: 4, msPerFrame: 80, loop: false },
+    FALL: { row: 12, frames: 5, msPerFrame: 160, loop: false },
+    DIM: { row: 16, frames: 3, msPerFrame: 300, loop: false },
+    EXTINGUISH: { row: 20, frames: 4, msPerFrame: 400, loop: false },
+    DEAD: { row: 24, frames: 4, msPerFrame: 400, loop: false },
+};
+
+const DIR_OFFSET = { S: 0, N: 1, E: 2, W: 3 };
+
+// ── Player factory ────────────────────────────────────────────────────────
+
 export function createPlayer() {
-    return { gridX: null, gridY: null, hp: 100, maxHp: 100 };
+    return {
+        gridX: null,
+        gridY: null,
+        hp: 100,
+        maxHp: 100,
+        // Smooth render position (pixel space, floats).
+        // null means "snap to grid on first draw — don't slide from nowhere".
+        renderX: null,
+        renderY: null,
+        // Animation
+        animState: 'IDLE',
+        animFrame: 0,
+        animTimer: 0,
+        dir: 'S',
+        animDone: false,
+    };
 }
 
+// ── Tile utilities ────────────────────────────────────────────────────────
+
 /**
- * Scans the maze for the start tile and positions the player there.
- *
- * @param {object}   player
- * @param {number[][]} maze
- * @param {number}   gridRows
- * @param {number}   gridColumns
+ * Scans the maze for the start tile, sets logical position,
+ * and SNAPS renderX/renderY so there is no lerp artefact on spawn/reset.
  */
 export function findStartTile(player, maze, gridRows, gridColumns) {
     for (let y = 0; y < gridRows; y++) {
         for (let x = 0; x < gridColumns; x++) {
-            if (maze[y][x] === TILE_MAP.start) {
+            if (maze[y][x] === 2 /* TILE_MAP.start */) {
                 player.gridX = x;
                 player.gridY = y;
+                player.renderX = x * T;
+                player.renderY = y * T;
+                player.animState = 'IDLE';
+                player.dir = 'S';
                 return;
             }
         }
     }
 }
 
+export function isWalkable(x, y, maze, gridRows, gridColumns) {
+    if (x < 0 || y < 0 || x >= gridColumns || y >= gridRows) return false;
+    return maze[y][x] !== 1;
+}
+
+// ── Movement ──────────────────────────────────────────────────────────────
+
 /**
- * Attempts to move the player based on currently held keys.
- * Movement is gated behind MOVE_DELAY_MS to prevent too-fast movement.
- * Returns the updated moveTimer (reset to 0 on a successful move attempt).
- *
- * @param {object} p - p5 instance
- * @param {object} player
- * @param {number} moveTimer
- * @param {number[][]} maze
- * @param {number} gridRows
- * @param {number} gridColumns
- * @returns {number} updated moveTimer
+ * Updates the logical grid position immediately on a valid move.
+ * renderX/renderY are NOT touched here — they slide toward the new
+ * target in updateRenderPos() which is called every draw tick.
  */
 export function movePlayer(p, player, moveTimer, maze, gridRows, gridColumns) {
+    if (!player.animDone && isLocked(player.animState)) return moveTimer;
     if (moveTimer < MOVE_DELAY_MS) return moveTimer;
 
     let dx = 0,
         dy = 0;
 
-    if (p.keyIsDown(p.UP_ARROW) || p.keyIsDown(87)) dy = -1;
-    else if (p.keyIsDown(p.DOWN_ARROW) || p.keyIsDown(83)) dy = 1;
-    else if (p.keyIsDown(p.LEFT_ARROW) || p.keyIsDown(65)) dx = -1;
-    else if (p.keyIsDown(p.RIGHT_ARROW) || p.keyIsDown(68)) dx = 1;
-    else return moveTimer;
+    if (p.keyIsDown(p.UP_ARROW) || p.keyIsDown(87)) {
+        dy = -1;
+        player.dir = 'N';
+    } else if (p.keyIsDown(p.DOWN_ARROW) || p.keyIsDown(83)) {
+        dy = 1;
+        player.dir = 'S';
+    } else if (p.keyIsDown(p.LEFT_ARROW) || p.keyIsDown(65)) {
+        dx = -1;
+        player.dir = 'W';
+    } else if (p.keyIsDown(p.RIGHT_ARROW) || p.keyIsDown(68)) {
+        dx = 1;
+        player.dir = 'E';
+    } else {
+        if (player.animState === 'WALK') setAnim(player, 'IDLE');
+        return moveTimer;
+    }
 
     if (
         isWalkable(
@@ -77,47 +146,158 @@ export function movePlayer(p, player, moveTimer, maze, gridRows, gridColumns) {
         player.gridY += dy;
     }
 
+    setAnim(player, 'WALK');
     return 0;
 }
 
-/**
- * Returns true if the tile at (x, y) is in-bounds and not a wall.
- */
-export function isWalkable(x, y, maze, gridRows, gridColumns) {
-    if (x < 0 || y < 0 || x >= gridColumns || y >= gridRows) return false;
-    return maze[y][x] !== 1;
-}
+// ── Smooth position lerp ──────────────────────────────────────────────────
 
 /**
- * Reduces the player's HP by `amount`, clamped to [0, maxHp].
- * Returns true if the player has died.
+ * Exponentially lerps renderX/renderY toward the logical grid position.
+ * Must be called every draw() tick with the capped delta time.
  *
- * @param {object} player
- * @param {number} amount
- * @returns {boolean} isDead
+ * Uses frame-rate-independent exponential decay so the curve is identical
+ * at 30, 60, or 144 fps:
+ *   remaining_after_dt = remaining * (1 - MOVE_LERP) ^ dt
+ *
+ * Snaps to exact pixel once the error drops below 0.5 px.
  */
+export function updateRenderPos(player, dt) {
+    // First-time init — snap to grid immediately with no slide
+    if (player.renderX === null || player.renderY === null) {
+        player.renderX = (player.gridX ?? 0) * T;
+        player.renderY = (player.gridY ?? 0) * T;
+        return;
+    }
+
+    const targetX = player.gridX * T;
+    const targetY = player.gridY * T;
+
+    const factor = Math.pow(1 - MOVE_LERP, dt);
+    const newX = targetX + (player.renderX - targetX) * factor;
+    const newY = targetY + (player.renderY - targetY) * factor;
+
+    player.renderX = Math.abs(newX - targetX) < 0.5 ? targetX : newX;
+    player.renderY = Math.abs(newY - targetY) < 0.5 ? targetY : newY;
+}
+
+// ── Animation helpers ─────────────────────────────────────────────────────
+
+function isLocked(state) {
+    return state === 'FALL' || state === 'EXTINGUISH' || state === 'DEAD';
+}
+
+export function setAnim(player, state, forceRestart = false) {
+    if (player.animState === state && !forceRestart) return;
+    player.animState = state;
+    player.animFrame = 0;
+    player.animTimer = 0;
+    player.animDone = false;
+}
+
+export function updateAnim(player, dt) {
+    const cfg = ANIM_STATE[player.animState];
+    if (!cfg) return;
+
+    player.animTimer += dt;
+    if (player.animTimer >= cfg.msPerFrame) {
+        player.animTimer -= cfg.msPerFrame;
+        const next = player.animFrame + 1;
+        if (next >= cfg.frames) {
+            if (cfg.loop) {
+                player.animFrame = 0;
+            } else {
+                player.animFrame = cfg.frames - 1;
+                player.animDone = true;
+            }
+        } else {
+            player.animFrame = next;
+        }
+    }
+}
+
+// ── Damage & triggers ─────────────────────────────────────────────────────
+
 export function takeDamage(player, amount) {
     player.hp = Math.max(0, Math.min(player.maxHp, player.hp - amount));
-    return player.hp <= 0;
+    if (player.hp <= 0) {
+        setAnim(player, 'DEAD', true);
+        return true;
+    }
+    setAnim(player, 'HIT', true);
+    return false;
 }
 
+export function triggerHitAnim(player) {
+    if (player.animState !== 'DEAD') setAnim(player, 'HIT', true);
+}
+
+export function triggerFallAnim(player) {
+    if (player.animState !== 'DEAD') setAnim(player, 'FALL', true);
+}
+
+export function triggerDimAnim(player) {
+    if (player.animState !== 'DEAD' && player.animState !== 'EXTINGUISH') {
+        setAnim(player, 'DIM', true);
+    }
+}
+
+export function triggerExtinguishAnim(player) {
+    if (player.animState !== 'DEAD') setAnim(player, 'EXTINGUISH', true);
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────
+
 /**
- * Draws the player at their current grid position.
- * TODO: Replace with p.image(sprites.player, ...)
+ * Advances animation, updates smooth render position, then draws the player.
  *
- * @param {object} p - p5 instance
- * @param {object} player
+ * Draws at renderX/renderY (smoothed pixel coords) rather than
+ * gridX * T / gridY * T, giving a gliding motion between tiles.
+ *
+ * @param {object}   p         - p5 instance
+ * @param {object}   player
+ * @param {p5.Image} playerImg - preloaded spritesheet (null = fallback rect)
+ * @param {number}   dt        - capped delta time in ms
  */
-export function drawPlayer(p, player) {
-    // ── PLACEHOLDER ──────────────────────────────────────────────────────────
-    // TODO: p.image(sprites.player, player.gridX * TILE_SIZE, player.gridY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    p.fill(220);
-    p.noStroke();
-    p.rect(
-        player.gridX * TILE_SIZE,
-        player.gridY * TILE_SIZE,
-        TILE_SIZE,
-        TILE_SIZE,
-    );
-    // ─────────────────────────────────────────────────────────────────────────
+export function drawPlayer(p, player, playerImg, dt = 16) {
+    updateAnim(player, dt);
+    updateRenderPos(player, dt);
+
+    const dx = player.renderX;
+    const dy = player.renderY;
+
+    if (playerImg) {
+        const cfg = ANIM_STATE[player.animState];
+        const dirOffset = DIR_OFFSET[player.dir] ?? 0;
+        const sheetRow = cfg.row + dirOffset;
+        const sx = player.animFrame * T;
+        const sy = sheetRow * T;
+
+        p.noTint();
+        p.image(playerImg, dx, dy, T, T, sx, sy, T, T);
+    } else {
+        const FALLBACK_COLORS = {
+            IDLE: [220, 220, 220],
+            WALK: [200, 240, 200],
+            HIT: [255, 100, 100],
+            FALL: [180, 80, 220],
+            DIM: [160, 120, 60],
+            EXTINGUISH: [60, 60, 80],
+            DEAD: [80, 80, 120],
+        };
+        const [r, g, b] = FALLBACK_COLORS[player.animState] ?? [220, 220, 220];
+        p.fill(r, g, b);
+        p.noStroke();
+        p.rect(dx, dy, T, T);
+
+        const dotOffset = {
+            S: [T / 2, T - 4],
+            N: [T / 2, 4],
+            E: [T - 4, T / 2],
+            W: [4, T / 2],
+        };
+        const [ox, oy] = dotOffset[player.dir] ?? [T / 2, T / 2];
+        p.fill(0, 0, 0, 180);
+        p.ellipse(dx + ox, dy + oy, 4, 4);
+    }
 }

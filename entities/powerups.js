@@ -8,6 +8,7 @@ import {
     TILE_MAP,
     POWER_UP_DURATIONS,
     GAME_STATE,
+    TORCH_RADIUS_BASE,
 } from '../common/constants.js';
 
 /**
@@ -88,9 +89,10 @@ export function checkPowerUps(params) {
     // Lerp torch radius toward boosted or base value
     let newTorchRadius = torchRadius;
     if (newTorchTimer > 0) {
-        newTorchRadius = torchRadius + (6 - torchRadius) * 0.1;
+        newTorchRadius =
+            torchRadius + (TORCH_RADIUS_BASE * 2 - torchRadius) * 0.1;
     } else if (darknessEffectTimer <= 0) {
-        newTorchRadius = torchRadius + (3 - torchRadius) * 0.1;
+        newTorchRadius = torchRadius + (TORCH_RADIUS_BASE - torchRadius) * 0.1;
     }
 
     return {
