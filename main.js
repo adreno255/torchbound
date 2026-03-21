@@ -85,7 +85,8 @@ function isLevelUnlocked(level) {
 /**
  * Returns the asset paths to use for a given level number.
  *  Levels 1-2 → map-light  + traps-light
- *  Levels 3-4 → map-dark   + traps-light
+ *  Level 3 → map-dark   + traps-light
+ * Level 3 → map-dark   + traps-dark
  *  Level  5   → map-dark-v2 + traps-dark
  */
 function assetsForLevel(level) {
@@ -180,6 +181,22 @@ new p5((p) => {
     // darkness event rather than every tick while darknessEffectTimer > 0
     let wasDark = false;
 
+    // ── Screen-space effects ──────────────────────────────────
+    // Spike damage: red vignette flash + screen shake
+    let hitFlashTimer = 0; // ms remaining for red vignette
+    const HIT_FLASH_MS = 350; // total vignette duration
+    let shakeTimer = 0; // ms remaining for shake
+    const SHAKE_MS = 280; // total shake duration
+    const SHAKE_MAG = 5; // max pixel offset at peak
+
+    // Vision powerup: smooth zoom-out / zoom-back transition
+    // visionTransitionAlpha mirrors transitionAlpha:
+    //   1 = fully zoomed in (normal play)
+    //   0 = fully zoomed out (full map visible)
+    let visionTransitionAlpha = 1;
+    let visionPanDir = 0; // -1 = zooming out, +1 = zooming back, 0 = idle
+    const VISION_PAN_MS = 600; // ms to complete the full pan
+
     // ── p5 Preload ───────────────────────────────────────────
     // Pre-loads every tileset/trap variant plus the shared powerup sheet.
     // They are cached in imgCache so loadLevel() can swap them instantly.
@@ -231,6 +248,45 @@ new p5((p) => {
             p.push();
             drawGameWorld();
             p.pop();
+
+            // ── Red vignette (screen-space, after world) ──────
+            if (hitFlashTimer > 0) {
+                hitFlashTimer -= Math.min(p.deltaTime, 50);
+                // Alpha: peaks at start, fades out
+                const t = Math.max(0, hitFlashTimer / HIT_FLASH_MS);
+                // Ease-out: strong initial flash that softens quickly
+                const a = Math.pow(t, 0.5) * 200;
+                p.push();
+                p.noStroke();
+                // Radial vignette — four gradient rects from each edge
+                const edgeW = p.windowWidth * 0.1;
+                const edgeH = p.windowHeight * 0.1;
+                // left
+                drawVignetteEdge(p, 0, 0, edgeW, p.windowHeight, a, 'left');
+                // right
+                drawVignetteEdge(
+                    p,
+                    p.windowWidth - edgeW,
+                    0,
+                    edgeW,
+                    p.windowHeight,
+                    a,
+                    'right',
+                );
+                // top
+                drawVignetteEdge(p, 0, 0, p.windowWidth, edgeH, a, 'top');
+                // bottom
+                drawVignetteEdge(
+                    p,
+                    0,
+                    p.windowHeight - edgeH,
+                    p.windowWidth,
+                    edgeH,
+                    a,
+                    'bottom',
+                );
+                p.pop();
+            }
 
             drawHUD(p, { player, timeLeft, timeBonusTextTimer, debugMode });
 
@@ -309,6 +365,31 @@ new p5((p) => {
         }
     };
 
+    // ── Screen-effect helpers ─────────────────────────────────
+
+    /**
+     * Draws a red gradient rect along one screen edge for the vignette.
+     * Uses multiple semi-transparent strips to fake a gradient.
+     */
+    function drawVignetteEdge(p, x, y, w, h, maxAlpha, side) {
+        const STEPS = 10;
+        for (let i = 0; i < STEPS; i++) {
+            // t=1 at screen edge, t=0 at inner boundary
+            const t = 1 - i / STEPS;
+            const a = maxAlpha * t * t; // quadratic falloff toward centre
+            p.fill(180, 0, 0, a);
+            if (side === 'left') {
+                p.rect(x + (w / STEPS) * i, y, w / STEPS, h);
+            } else if (side === 'right') {
+                p.rect(x + w - (w / STEPS) * (i + 1), y, w / STEPS, h);
+            } else if (side === 'top') {
+                p.rect(x, y + (h / STEPS) * i, w, h / STEPS);
+            } else {
+                p.rect(x, y + h - (h / STEPS) * (i + 1), w, h / STEPS);
+            }
+        }
+    }
+
     // ── Level Loading ─────────────────────────────────────────
 
     function loadLevel(difficulty) {
@@ -356,6 +437,10 @@ new p5((p) => {
         pendingGameOver = false;
         gameOverDelayTimer = 0;
         wasDark = false;
+        hitFlashTimer = 0;
+        shakeTimer = 0;
+        visionTransitionAlpha = 1;
+        visionPanDir = 0;
     }
 
     // ── World Rendering ───────────────────────────────────────
@@ -365,6 +450,43 @@ new p5((p) => {
         introTimer += safeDt;
 
         handleGamePhase(safeDt);
+
+        // ── Screen shake ─────────────────────────────────────
+        // Decay timer and compute a random offset — only during active shake.
+        let shakeX = 0,
+            shakeY = 0;
+        if (shakeTimer > 0) {
+            shakeTimer -= safeDt;
+            // Envelope: full magnitude at start, decays linearly to 0
+            const env = Math.max(0, shakeTimer / SHAKE_MS);
+            const mag = SHAKE_MAG * env;
+            shakeX = p.random(-mag, mag);
+            shakeY = p.random(-mag, mag);
+            p.translate(shakeX, shakeY);
+        }
+
+        // ── Vision powerup pan ────────────────────────────────
+        // Advance the transition alpha toward its target each frame.
+        if (visionPanDir !== 0) {
+            const step = safeDt / VISION_PAN_MS;
+            visionTransitionAlpha = p.constrain(
+                visionTransitionAlpha + visionPanDir * step,
+                0,
+                1,
+            );
+            // Arrived at target — stop
+            if (visionTransitionAlpha <= 0 || visionTransitionAlpha >= 1) {
+                visionPanDir = 0;
+            }
+        }
+
+        // Use visionTransitionAlpha as the effective transition alpha whenever
+        // a vision pan is in progress (panning out OR panning back).
+        // Otherwise use the normal intro transitionAlpha.
+        const effectiveAlpha =
+            visionPanDir !== 0 || visionTransitionAlpha < 1
+                ? visionTransitionAlpha
+                : transitionAlpha;
 
         if (enableCamera) {
             ({ cameraX, cameraY } = followPlayer(p, {
@@ -381,7 +503,7 @@ new p5((p) => {
             scaleFactor,
             worldWidth,
             worldHeight,
-            transitionAlpha,
+            transitionAlpha: effectiveAlpha,
             player,
             cameraX,
             cameraY,
@@ -510,6 +632,9 @@ new p5((p) => {
             torchEffectTimer,
             dt,
             onDamage: (amount) => {
+                // Trigger screen shake and red vignette on spike hit
+                shakeTimer = SHAKE_MS;
+                hitFlashTimer = HIT_FLASH_MS;
                 triggerHitAnim(player);
                 if (takeDamage(player, amount)) onPlayerDeath();
             },
@@ -541,6 +666,9 @@ new p5((p) => {
         }
         wasDark = isDark;
 
+        // Snapshot vision timer before checkPowerUps so we can detect edges
+        const prevVisionTimer = visionEffectTimer;
+
         const puResult = checkPowerUps({
             currentGameState,
             player,
@@ -559,7 +687,31 @@ new p5((p) => {
         torchEffectTimer = puResult.torchEffectTimer;
         visionEffectTimer = puResult.visionEffectTimer;
         torchRadius = puResult.torchRadius;
-        enableCamera = puResult.enableCamera;
+        // NOTE: we do NOT apply puResult.enableCamera directly here —
+        // we manage enableCamera ourselves so the vision pan can animate
+        // before the camera actually switches modes.
+
+        // Vision pan: detect leading and trailing edge to start smooth pan
+        const wasVision = prevVisionTimer > 0;
+        const isVision = visionEffectTimer > 0;
+        if (isVision && !wasVision) {
+            // Powerup just collected — start panning OUT (1 → 0)
+            visionPanDir = -1;
+            // Keep enableCamera=true so applyCamera uses the lerp path
+        } else if (!isVision && wasVision) {
+            // Powerup just expired — start panning BACK (0 → 1)
+            visionPanDir = +1;
+            enableCamera = true; // re-enable follow immediately so
+            // camera lerps back from bird's-eye
+        }
+        // While vision is fully active (pan complete, alpha at 0) disable camera
+        if (visionEffectTimer > 0 && visionTransitionAlpha <= 0) {
+            enableCamera = false;
+        }
+        // Restore camera once pan-back is complete
+        if (visionEffectTimer <= 0 && visionTransitionAlpha >= 1) {
+            enableCamera = !debugMode;
+        }
 
         updateTimer();
     }
