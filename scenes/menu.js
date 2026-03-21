@@ -4,7 +4,7 @@
 // victory, game over, and leaderboard.
 // ============================================================
 
-import { drawButton } from '../common/utils.js';
+import { drawButton, _drawPixelButtonSlices } from '../common/utils.js';
 
 // ---------------------------------------------------------------------------
 // Main Menu
@@ -17,16 +17,21 @@ import { drawButton } from '../common/utils.js';
  * @param {function} params.onPlay
  * @param {function} params.onChangePlayer
  * @param {function} params.onLeaderboard
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]
  */
 export function drawMainMenu(
     p,
-    { playerName, onPlay, onChangePlayer, onLeaderboard },
+    { playerName, onPlay, onChangePlayer, onLeaderboard, fonts, assets },
 ) {
     p.textAlign(p.CENTER, p.CENTER);
+
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.fill(255);
     p.textSize(64);
     p.text('TORCHBOUND', p.windowWidth / 2, p.windowHeight / 2 - 80);
 
+    if (fonts?.body) p.textFont(fonts.body);
     p.textSize(20);
     p.fill(200);
     p.text(
@@ -35,13 +40,27 @@ export function drawMainMenu(
         p.windowHeight / 2 - 10,
     );
 
-    drawButton(p, 'PLAY', p.windowWidth / 2, p.windowHeight / 2 + 50, onPlay);
+    drawButton(
+        p,
+        'PLAY',
+        p.windowWidth / 2,
+        p.windowHeight / 2 + 50,
+        onPlay,
+        300,
+        50,
+        fonts,
+        assets,
+    );
     drawButton(
         p,
         'CHANGE PLAYER',
         p.windowWidth / 2,
         p.windowHeight / 2 + 120,
         onChangePlayer,
+        300,
+        50,
+        fonts,
+        assets,
     );
     drawButton(
         p,
@@ -49,6 +68,10 @@ export function drawMainMenu(
         p.windowWidth / 2,
         p.windowHeight / 2 + 190,
         onLeaderboard,
+        300,
+        50,
+        fonts,
+        assets,
     );
 }
 
@@ -61,9 +84,13 @@ export function drawMainMenu(
  * @param {object} params
  * @param {string}   params.playerName
  * @param {function} params.onBack
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]
  */
-export function drawNameInput(p, { playerName, onBack }) {
+export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
     p.textAlign(p.CENTER, p.CENTER);
+
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.fill(255);
     p.textSize(32);
     p.text('ENTER YOUR NAME', p.windowWidth / 2, p.windowHeight / 2 - 100);
@@ -76,6 +103,7 @@ export function drawNameInput(p, { playerName, onBack }) {
         p.windowHeight / 2,
     );
 
+    if (fonts?.body) p.textFont(fonts.body);
     p.textSize(18);
     p.fill(150);
     p.text(
@@ -90,6 +118,10 @@ export function drawNameInput(p, { playerName, onBack }) {
         p.windowWidth / 2,
         p.windowHeight - 80,
         onBack,
+        300,
+        50,
+        fonts,
+        assets,
     );
 }
 
@@ -99,57 +131,133 @@ export function drawNameInput(p, { playerName, onBack }) {
 
 /**
  * Draws the level selection screen.
- * Unlocked levels show as normal buttons; locked levels are greyed out
- * with a 🔒 icon and do not respond to clicks.
+ * Unlocked levels use the full pixel button.
+ * Locked levels show a dimmed pixel button with the dungeon lock sprite.
  *
  * @param {object} p
  * @param {object} params
- * @param {object}   params.levels           - LEVELS config object
- * @param {number}   params.maxUnlockedLevel - highest level the player may play
- * @param {function} params.onSelect         - (levelIndex) => void
+ * @param {object}   params.levels
+ * @param {number}   params.maxUnlockedLevel
+ * @param {function} params.onSelect
  * @param {function} params.onBack
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]  - { buttonTiles, lockImg }
  */
 export function drawLevelSelect(
     p,
-    { levels, maxUnlockedLevel, onSelect, onBack },
+    { levels, maxUnlockedLevel, onSelect, onBack, fonts, assets },
 ) {
     p.textAlign(p.CENTER, p.CENTER);
+
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.fill(255);
     p.textSize(32);
     p.text('SELECT A LEVEL', p.windowWidth / 2, 100);
 
     const levelCount = Object.keys(levels).length;
+    const btnW = 300;
+    const btnH = 50;
 
     for (let i = 1; i <= levelCount; i++) {
         const unlocked = i <= maxUnlockedLevel;
-        const y = 100 + i * 80;
+        const cy = 100 + i * 80;
+        const cx = p.windowWidth / 2;
 
         if (unlocked) {
             drawButton(
                 p,
                 `Level ${i}: ${levels[i].name}`,
-                p.windowWidth / 2,
-                y,
+                cx,
+                cy,
                 () => onSelect(i),
+                btnW,
+                btnH,
+                fonts,
+                assets,
             );
         } else {
-            // ── Locked level — greyed-out, non-interactive button ──────────
-            const btnW = 300;
-            const btnH = 50;
-            const cx = p.windowWidth / 2;
-
-            p.fill(30);
-            p.rectMode(p.CENTER);
-            p.rect(cx, y, btnW, btnH, 5);
-
-            p.fill(90);
-            p.textSize(20);
-            p.textAlign(p.CENTER, p.CENTER);
-            p.text(`🔒  Level ${i}: ${levels[i].name}`, cx, y);
+            drawLockedButton(
+                p,
+                cx,
+                cy,
+                btnW,
+                btnH,
+                i,
+                levels[i].name,
+                fonts,
+                assets,
+            );
         }
     }
 
-    drawButton(p, 'BACK', p.windowWidth / 2, p.windowHeight - 80, onBack);
+    drawButton(
+        p,
+        'BACK',
+        p.windowWidth / 2,
+        p.windowHeight - 80,
+        onBack,
+        300,
+        50,
+        fonts,
+        assets,
+    );
+}
+
+/**
+ * Draws a non-interactive locked-level button.
+ * Renders the pixel button art with a dim tint, plus the lock sprite.
+ */
+function drawLockedButton(
+    p,
+    cx,
+    cy,
+    btnW,
+    btnH,
+    levelNum,
+    levelName,
+    fonts,
+    assets,
+) {
+    const img = assets?.buttonTiles ?? null;
+    const lockImg = assets?.lockImg ?? null;
+
+    p.push();
+
+    if (img) {
+        p.tint(80, 50, 80, 180);
+        _drawPixelButtonSlices(p, img, cx, cy, btnW, btnH, false);
+        p.noTint();
+    } else {
+        p.fill(30);
+        p.rectMode(p.CENTER);
+        p.noStroke();
+        p.rect(cx, cy, btnW, btnH, 5);
+    }
+
+    // Lock icon
+    const lockSize = btnH * 0.7;
+    const lockX = cx - btnW / 2 + btnH * 0.65;
+
+    if (lockImg) {
+        p.imageMode(p.CENTER);
+        p.noTint();
+        p.image(lockImg, lockX, cy, lockSize, lockSize);
+    } else {
+        if (fonts?.body) p.textFont(fonts.body);
+        p.fill(120, 80, 120);
+        p.textSize(18);
+        p.textAlign(p.LEFT, p.CENTER);
+        p.text('🔒', lockX - 10, cy);
+    }
+
+    // Level label — dimmed body text
+    if (fonts?.body) p.textFont(fonts.body);
+    p.fill(120, 90, 140);
+    p.textSize(18);
+    p.textAlign(p.LEFT, p.CENTER);
+    p.text(`Level ${levelNum}: ${levelName}`, lockX + lockSize * 0.6 + 4, cy);
+
+    p.pop();
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +275,8 @@ export function drawLevelSelect(
  * @param {function} params.onContinue
  * @param {function} params.onRetry
  * @param {function} params.onMenu
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]
  */
 export function drawVictory(
     p,
@@ -179,11 +289,13 @@ export function drawVictory(
         onContinue,
         onRetry,
         onMenu,
+        fonts,
+        assets,
     },
 ) {
-    p.background(0, 50, 0);
     p.textAlign(p.CENTER, p.CENTER);
 
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.fill(255);
     p.textSize(48);
     p.text('YOU ESCAPED!', p.windowWidth / 2, p.windowHeight / 2 - 80);
@@ -198,6 +310,7 @@ export function drawVictory(
         130,
     );
 
+    if (fonts?.body) p.textFont(fonts.body);
     topScores.forEach((entry, i) => {
         const yPos = 180 + i * 35;
         const isCurrentPlayer = entry.name === playerName;
@@ -217,14 +330,32 @@ export function drawVictory(
         p.windowWidth / 2 - 325,
         p.windowHeight / 2 + 50,
         onContinue,
+        300,
+        50,
+        fonts,
+        assets,
     );
-    drawButton(p, 'RETRY', p.windowWidth / 2, p.windowHeight / 2 + 50, onRetry);
+    drawButton(
+        p,
+        'RETRY',
+        p.windowWidth / 2,
+        p.windowHeight / 2 + 50,
+        onRetry,
+        300,
+        50,
+        fonts,
+        assets,
+    );
     drawButton(
         p,
         'MENU',
         p.windowWidth / 2 + 325,
         p.windowHeight / 2 + 50,
         onMenu,
+        300,
+        50,
+        fonts,
+        assets,
     );
 }
 
@@ -239,15 +370,21 @@ export function drawVictory(
  * @param {function} params.onRetry
  * @param {function} params.onLevels
  * @param {function} params.onMenu
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]
  */
-export function drawGameOver(p, { lossReason, onRetry, onLevels, onMenu }) {
-    p.background(50, 0, 0);
+export function drawGameOver(
+    p,
+    { lossReason, onRetry, onLevels, onMenu, fonts, assets },
+) {
     p.textAlign(p.CENTER, p.CENTER);
 
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.fill(255);
     p.textSize(48);
     p.text('GAME OVER', p.windowWidth / 2, p.windowHeight / 2 - 100);
 
+    if (fonts?.body) p.textFont(fonts.body);
     p.textSize(24);
     p.fill(200);
     p.text(`Cause: ${lossReason}`, p.windowWidth / 2, p.windowHeight / 2 - 30);
@@ -258,6 +395,10 @@ export function drawGameOver(p, { lossReason, onRetry, onLevels, onMenu }) {
         p.windowWidth / 2 - 325,
         p.windowHeight / 2 + 50,
         onRetry,
+        300,
+        50,
+        fonts,
+        assets,
     );
     drawButton(
         p,
@@ -265,6 +406,10 @@ export function drawGameOver(p, { lossReason, onRetry, onLevels, onMenu }) {
         p.windowWidth / 2,
         p.windowHeight / 2 + 50,
         onLevels,
+        300,
+        50,
+        fonts,
+        assets,
     );
     drawButton(
         p,
@@ -272,6 +417,10 @@ export function drawGameOver(p, { lossReason, onRetry, onLevels, onMenu }) {
         p.windowWidth / 2 + 325,
         p.windowHeight / 2 + 50,
         onMenu,
+        300,
+        50,
+        fonts,
+        assets,
     );
 }
 
@@ -283,16 +432,20 @@ export function drawGameOver(p, { lossReason, onRetry, onLevels, onMenu }) {
  * @param {object} p
  * @param {object} params
  * @param {string}        params.playerName
- * @param {string|number} params.leaderboardView - 'overall' or level number
+ * @param {string|number} params.leaderboardView
  * @param {Array}         params.data
- * @param {function}      params.onViewChange - (view) => void
+ * @param {function}      params.onViewChange
  * @param {function}      params.onBack
+ * @param {object}        [params.fonts]
+ * @param {object}        [params.assets]
  */
 export function drawLeaderboard(
     p,
-    { playerName, leaderboardView, data, onViewChange, onBack },
+    { playerName, leaderboardView, data, onViewChange, onBack, fonts, assets },
 ) {
     p.textAlign(p.CENTER, p.CENTER);
+
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.fill(255);
     p.textSize(42);
     p.text('HALL OF FAME', p.windowWidth / 2, 60);
@@ -308,9 +461,12 @@ export function drawLeaderboard(
             () => onViewChange(v),
             90,
             40,
+            fonts,
+            assets,
         );
     });
 
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(24);
     p.fill(200);
     p.text(
@@ -321,7 +477,11 @@ export function drawLeaderboard(
         190,
     );
 
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(24);
+
     if (data.length === 0) {
+        p.fill(200);
         p.text('No records yet...', p.windowWidth / 2, 250);
     }
 
@@ -334,5 +494,15 @@ export function drawLeaderboard(
         );
     });
 
-    drawButton(p, 'BACK', p.windowWidth / 2, p.windowHeight - 80, onBack);
+    drawButton(
+        p,
+        'BACK',
+        p.windowWidth / 2,
+        p.windowHeight - 80,
+        onBack,
+        300,
+        50,
+        fonts,
+        assets,
+    );
 }

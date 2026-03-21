@@ -13,15 +13,17 @@ import { drawButton } from '../common/utils.js';
  *
  * @param {object} p - p5 instance
  * @param {object} params
- * @param {object} params.player
- * @param {number} params.timeLeft
- * @param {number} params.timeBonusTextTimer
+ * @param {object}  params.player
+ * @param {number}  params.timeLeft
+ * @param {number}  params.timeBonusTextTimer
  * @param {boolean} params.debugMode
+ * @param {object}  [params.fonts]  - { heading, body }
  */
 export function drawHUD(
     p,
-    { player, timeLeft, timeBonusTextTimer, debugMode },
+    { player, timeLeft, timeBonusTextTimer, debugMode, fonts },
 ) {
+    if (fonts?.body) p.textFont(fonts.body);
     p.fill(255);
     p.textSize(24);
     p.textAlign(p.LEFT, p.TOP);
@@ -36,26 +38,31 @@ export function drawHUD(
     if (timeBonusTextTimer > 0) {
         p.push();
         const alpha = p.map(timeBonusTextTimer, 0, 2000, 0, 255);
+        if (fonts?.heading) p.textFont(fonts.heading);
         p.fill(255, 255, 0, alpha);
         p.text('+30s', 150, 30);
         p.pop();
     }
 
+    if (fonts?.body) p.textFont(fonts.body);
     p.textAlign(p.RIGHT, p.TOP);
     p.text(`DEBUG MODE: ${debugMode ? 'ON' : 'OFF'}`, p.windowWidth - 10, 10);
 }
 
 /**
  * Renders the "GET READY / 5…1 / GO!" countdown overlay during the intro phase.
- * Fades out as fog rolls in.
  *
  * @param {object} p - p5 instance
  * @param {object} params
  * @param {string} params.gamePhase
- * @param {number} params.introTimer - ms since level load
- * @param {number} params.fogOpacity - 0–255
+ * @param {number} params.introTimer
+ * @param {number} params.fogOpacity
+ * @param {object} [params.fonts]
  */
-export function drawIntroCountdown(p, { gamePhase, introTimer, fogOpacity }) {
+export function drawIntroCountdown(
+    p,
+    { gamePhase, introTimer, fogOpacity, fonts },
+) {
     if (gamePhase === GAME_PHASE.PLAYING) return;
 
     p.push();
@@ -78,6 +85,7 @@ export function drawIntroCountdown(p, { gamePhase, introTimer, fogOpacity }) {
 
     p.textAlign(p.CENTER, p.CENTER);
     p.textStyle(p.BOLD);
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(displaySize);
 
     p.fill(0, textAlpha * 0.4);
@@ -98,14 +106,21 @@ export function drawIntroCountdown(p, { gamePhase, introTimer, fogOpacity }) {
  * @param {function} callbacks.onRetry
  * @param {function} callbacks.onLevels
  * @param {function} callbacks.onMenu
+ * @param {object}   [callbacks.fonts]
+ * @param {object}   [callbacks.assets]
  */
-export function drawPauseMenu(p, { onResume, onRetry, onLevels, onMenu }) {
-    p.fill(0);
+export function drawPauseMenu(
+    p,
+    { onResume, onRetry, onLevels, onMenu, fonts, assets },
+) {
+    p.fill(0, 200);
     p.rectMode(p.CORNER);
+    p.noStroke();
     p.rect(0, 0, p.windowWidth, p.windowHeight);
 
     p.textAlign(p.CENTER, p.CENTER);
     p.fill(255);
+    if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(48);
     p.text('PAUSED', p.windowWidth / 2, p.windowHeight / 2 - 120);
 
@@ -115,14 +130,42 @@ export function drawPauseMenu(p, { onResume, onRetry, onLevels, onMenu }) {
         p.windowWidth / 2,
         p.windowHeight / 2 - 40,
         onResume,
+        300,
+        50,
+        fonts,
+        assets,
     );
-    drawButton(p, 'RETRY', p.windowWidth / 2, p.windowHeight / 2 + 30, onRetry);
+    drawButton(
+        p,
+        'RETRY',
+        p.windowWidth / 2,
+        p.windowHeight / 2 + 30,
+        onRetry,
+        300,
+        50,
+        fonts,
+        assets,
+    );
     drawButton(
         p,
         'LEVELS',
         p.windowWidth / 2,
         p.windowHeight / 2 + 100,
         onLevels,
+        300,
+        50,
+        fonts,
+        assets,
     );
-    drawButton(p, 'MENU', p.windowWidth / 2, p.windowHeight / 2 + 170, onMenu);
+    drawButton(
+        p,
+        'MENU',
+        p.windowWidth / 2,
+        p.windowHeight / 2 + 170,
+        onMenu,
+        300,
+        50,
+        fonts,
+        assets,
+    );
 }
