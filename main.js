@@ -118,6 +118,9 @@ new p5((p) => {
     let buttonTilesImg = null;
     let lockImg = null;
     let scrollImg = null; // assets/ui/scroll.png
+    let hudBarImg = null; // assets/ui/hud-bar.png
+    let hudHeartImg = null; // assets/ui/hud-heart.png
+    let hudClockImg = null; // assets/ui/hud-clock.png
 
     // Fonts
     let fontHeading = null;
@@ -209,7 +212,14 @@ new p5((p) => {
     }
 
     function getAssets() {
-        return { buttonTiles: buttonTilesImg, lockImg, scrollImg };
+        return {
+            buttonTiles: buttonTilesImg,
+            lockImg,
+            scrollImg,
+            hudBar: hudBarImg,
+            hudHeart: hudHeartImg,
+            hudClock: hudClockImg,
+        };
     }
 
     function getBgTilesets() {
@@ -265,6 +275,21 @@ new p5((p) => {
             'assets/ui/scroll.png',
             () => console.log('Loaded: scroll.png'),
             () => console.warn('Not found: assets/ui/scroll.png'),
+        );
+        hudBarImg = p.loadImage(
+            'assets/ui/hud-bar.png',
+            () => console.log('Loaded: hud-bar.png'),
+            () => console.warn('Not found: assets/ui/hud-bar.png'),
+        );
+        hudHeartImg = p.loadImage(
+            'assets/ui/hud-heart.png',
+            () => console.log('Loaded: hud-heart.png'),
+            () => console.warn('Not found: assets/ui/hud-heart.png'),
+        );
+        hudClockImg = p.loadImage(
+            'assets/ui/hud-clock.png',
+            () => console.log('Loaded: hud-clock.png'),
+            () => console.warn('Not found: assets/ui/hud-clock.png'),
         );
 
         // Fonts
@@ -369,7 +394,11 @@ new p5((p) => {
                 timeLeft,
                 timeBonusTextTimer,
                 debugMode,
+                dt: Math.min(p.deltaTime, 50),
+                gamePhase,
+                introTimer,
                 fonts: getFonts(),
+                assets: getAssets(),
             });
 
             if (currentGameState === GAME_STATE.PAUSED) {

@@ -11,7 +11,7 @@ export const LEVELS = {
     1: {
         name: "The Descent",
         maze: generateMaze(25, 15, 0.03, 0.02),
-        time: 120
+        time: 10
     },
     2: {
         name: "Trial of Shadows",
