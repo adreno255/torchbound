@@ -425,15 +425,15 @@ export function drawIntroCountdown(
     p.resetMatrix();
     const alpha = 255 - fogOpacity;
     let str = '',
-        size = 48;
+        size = 92;
     if (introTimer < 1500) {
         str = 'GET READY!';
     } else if (introTimer < 6500) {
         str = Math.floor(6 - (introTimer - 1500) / 1000).toString();
-        size = 90 + p.map(introTimer % 1000, 0, 200, 20, 0, true);
+        size = 160 + p.map(introTimer % 1000, 0, 200, 20, 0, true);
     } else {
         str = 'GO!';
-        size = 100;
+        size = 192;
     }
     p.textAlign(p.CENTER, p.CENTER);
     p.textStyle(p.BOLD);
