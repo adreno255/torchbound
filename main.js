@@ -117,6 +117,7 @@ new p5((p) => {
     // UI assets
     let buttonTilesImg = null;
     let lockImg = null;
+    let scrollImg = null; // assets/ui/scroll.png
 
     // Fonts
     let fontHeading = null;
@@ -208,7 +209,7 @@ new p5((p) => {
     }
 
     function getAssets() {
-        return { buttonTiles: buttonTilesImg, lockImg };
+        return { buttonTiles: buttonTilesImg, lockImg, scrollImg };
     }
 
     function getBgTilesets() {
@@ -259,6 +260,11 @@ new p5((p) => {
             'assets/ui/lock.png',
             () => console.log('Loaded: lock.png'),
             () => console.warn('Not found: assets/ui/lock.png'),
+        );
+        scrollImg = p.loadImage(
+            'assets/ui/scroll.png',
+            () => console.log('Loaded: scroll.png'),
+            () => console.warn('Not found: assets/ui/scroll.png'),
         );
 
         // Fonts

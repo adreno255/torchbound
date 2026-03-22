@@ -1,13 +1,15 @@
 // ============================================================
 // leaderboard.js
 // Handles reading and writing scores to localStorage.
-// Keeps a top-5 per level and computes overall cumulative scores.
+// Keeps a top-10 per level and computes overall cumulative scores.
 // ============================================================
+
+const PER_LEVEL_CAP = 10;
 
 /**
  * Saves a score for a player on a given level.
  * Only updates if the new score is a personal best.
- * Keeps a maximum of 5 entries per level, sorted by score.
+ * Keeps a maximum of 10 entries per level, sorted by score.
  *
  * @param {number} level
  * @param {string} name
@@ -30,13 +32,13 @@ export function saveScore(level, name, score) {
     }
 
     leaderboard.sort((a, b) => b.score - a.score);
-    leaderboard = leaderboard.slice(0, 5);
+    leaderboard = leaderboard.slice(0, PER_LEVEL_CAP);
 
     localStorage.setItem(`torchbound_lv${level}`, JSON.stringify(leaderboard));
 }
 
 /**
- * Returns the top-5 leaderboard for a single level.
+ * Returns the full top-10 leaderboard for a single level.
  *
  * @param {number} level
  * @returns {{ name: string, score: number }[]}
@@ -48,6 +50,7 @@ export function getLeaderboard(level) {
 /**
  * Aggregates scores across all 5 levels into an overall leaderboard.
  * Each player's scores from every level are summed together.
+ * Returns top 10.
  *
  * @returns {{ name: string, score: number }[]}
  */
@@ -66,7 +69,7 @@ export function getOverallLeaderboard() {
     return Object.entries(totals)
         .map(([name, score]) => ({ name, score }))
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+        .slice(0, PER_LEVEL_CAP);
 }
 
 /**
