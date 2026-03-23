@@ -3,22 +3,23 @@
 // Player creation, grid movement, collision, damage, and
 // sprite animation state machine.
 //
-// SPRITE SHEET: assets/sprites/player.png
+// SPRITE SHEET: assets/sprites/player-v2.png
 //   — 32×32px frames, RGBA, crispEdges
-//   — Sheet is (maxFrames * 32) wide × (28 rows * 32) tall
+//   — Sheet is 6 cols × 32 rows (192×1024px)
 //
 // Row index = dirOffset + stateRowBase
 //   dirOffset: S=0, N=1, E=2, W=3
 //
-// stateRowBase | state       | frames | ms/frame
-// -------------|-------------|--------|----------
-//  0           | idle        |   4    |  200
-//  4           | walk        |   6    |  100
-//  8           | hit (spike) |   4    |   80
-// 12           | fall        |   5    |  160
-// 16           | dim         |   3    |  300
-// 20           | extinguish  |   4    |  200
-// 24           | dead        |   4    |  200
+// stateRowBase | state      | frames | ms/frame | loop
+// -------------|------------|--------|----------|------
+//  0           | idle       |   4    |  400     | yes
+//  4           | walk       |   6    |  150     | yes
+//  8           | dim_idle   |   4    |  400     | yes
+// 12           | dim_walk   |   6    |  150     | yes
+// 16           | hit        |   4    |   80     | no
+// 20           | fall       |   5    |  160     | no
+// 24           | extinguish |   4    |  200     | no
+// 28           | dead       |   4    |  200     | no
 //
 // SMOOTH MOVEMENT
 // gridX / gridY   — logical tile position used by all game logic
@@ -34,22 +35,18 @@ const T = TILE_SIZE; // 32
 /**
  * Exponential-decay lerp speed — fraction of remaining distance
  * closed per millisecond.
- *
- * At 60 fps (dt ≈ 16 ms):  (1-0.018)^16 ≈ 0.749  → 25 % of gap closed per frame
- * At 30 fps (dt ≈ 33 ms):  (1-0.018)^33 ≈ 0.547  → 45 % of gap closed per frame
- * Both converge to < 0.5 px well within the 400 ms move window.
- * Raise toward 0.025 for snappier feel; lower toward 0.010 for floatier.
  */
 const MOVE_LERP = 0.018;
 
 export const ANIM_STATE = {
     IDLE: { row: 0, frames: 4, msPerFrame: 400, loop: true },
     WALK: { row: 4, frames: 6, msPerFrame: 150, loop: true },
-    HIT: { row: 8, frames: 4, msPerFrame: 80, loop: false },
-    FALL: { row: 12, frames: 5, msPerFrame: 160, loop: false },
-    DIM: { row: 16, frames: 3, msPerFrame: 300, loop: false },
-    EXTINGUISH: { row: 20, frames: 4, msPerFrame: 400, loop: false },
-    DEAD: { row: 24, frames: 4, msPerFrame: 400, loop: false },
+    DIM_IDLE: { row: 8, frames: 4, msPerFrame: 400, loop: true },
+    DIM_WALK: { row: 12, frames: 6, msPerFrame: 150, loop: true },
+    HIT: { row: 16, frames: 4, msPerFrame: 80, loop: false },
+    FALL: { row: 20, frames: 5, msPerFrame: 160, loop: false },
+    EXTINGUISH: { row: 24, frames: 4, msPerFrame: 200, loop: false },
+    DEAD: { row: 28, frames: 4, msPerFrame: 200, loop: false },
 };
 
 const DIR_OFFSET = { S: 0, N: 1, E: 2, W: 3 };
@@ -108,10 +105,25 @@ export function isWalkable(x, y, maze, gridRows, gridColumns) {
  * Updates the logical grid position immediately on a valid move.
  * renderX/renderY are NOT touched here — they slide toward the new
  * target in updateRenderPos() which is called every draw tick.
+ *
+ * Respects the dim states — movement switches between DIM_IDLE/DIM_WALK
+ * instead of IDLE/WALK when darkness is active. The isDark flag is
+ * forwarded from main.js each frame.
  */
-export function movePlayer(p, player, moveTimer, maze, gridRows, gridColumns) {
+export function movePlayer(
+    p,
+    player,
+    moveTimer,
+    maze,
+    gridRows,
+    gridColumns,
+    isDark = false,
+) {
     if (!player.animDone && isLocked(player.animState)) return moveTimer;
     if (moveTimer < MOVE_DELAY_MS) return moveTimer;
+
+    const idleState = isDark ? 'DIM_IDLE' : 'IDLE';
+    const walkState = isDark ? 'DIM_WALK' : 'WALK';
 
     let dx = 0,
         dy = 0;
@@ -129,7 +141,17 @@ export function movePlayer(p, player, moveTimer, maze, gridRows, gridColumns) {
         dx = 1;
         player.dir = 'E';
     } else {
-        if (player.animState === 'WALK') setAnim(player, 'IDLE');
+        // No key held — ensure we're in the correct idle state
+        const currentIsWalk =
+            player.animState === 'WALK' || player.animState === 'DIM_WALK';
+        const currentIsIdle =
+            player.animState === 'IDLE' || player.animState === 'DIM_IDLE';
+        if (
+            currentIsWalk ||
+            (currentIsIdle && player.animState !== idleState)
+        ) {
+            setAnim(player, idleState);
+        }
         return moveTimer;
     }
 
@@ -146,7 +168,7 @@ export function movePlayer(p, player, moveTimer, maze, gridRows, gridColumns) {
         player.gridY += dy;
     }
 
-    setAnim(player, 'WALK');
+    setAnim(player, walkState);
     return 0;
 }
 
@@ -155,15 +177,8 @@ export function movePlayer(p, player, moveTimer, maze, gridRows, gridColumns) {
 /**
  * Exponentially lerps renderX/renderY toward the logical grid position.
  * Must be called every draw() tick with the capped delta time.
- *
- * Uses frame-rate-independent exponential decay so the curve is identical
- * at 30, 60, or 144 fps:
- *   remaining_after_dt = remaining * (1 - MOVE_LERP) ^ dt
- *
- * Snaps to exact pixel once the error drops below 0.5 px.
  */
 export function updateRenderPos(player, dt) {
-    // First-time init — snap to grid immediately with no slide
     if (player.renderX === null || player.renderY === null) {
         player.renderX = (player.gridX ?? 0) * T;
         player.renderY = (player.gridY ?? 0) * T;
@@ -237,9 +252,14 @@ export function triggerFallAnim(player) {
 }
 
 export function triggerDimAnim(player) {
-    if (player.animState !== 'DEAD' && player.animState !== 'EXTINGUISH') {
-        setAnim(player, 'DIM', true);
-    }
+    // Switches to the dim variant of whichever locomotion state is active.
+    // DIM_IDLE and DIM_WALK are handled by movePlayer each frame;
+    // this triggers the initial switch when the darkness trap fires.
+    if (player.animState === 'DEAD' || player.animState === 'EXTINGUISH')
+        return;
+    const isMoving =
+        player.animState === 'WALK' || player.animState === 'DIM_WALK';
+    setAnim(player, isMoving ? 'DIM_WALK' : 'DIM_IDLE', false);
 }
 
 export function triggerExtinguishAnim(player) {
@@ -250,9 +270,6 @@ export function triggerExtinguishAnim(player) {
 
 /**
  * Advances animation, updates smooth render position, then draws the player.
- *
- * Draws at renderX/renderY (smoothed pixel coords) rather than
- * gridX * T / gridY * T, giving a gliding motion between tiles.
  *
  * @param {object}   p         - p5 instance
  * @param {object}   player
@@ -279,9 +296,10 @@ export function drawPlayer(p, player, playerImg, dt = 16) {
         const FALLBACK_COLORS = {
             IDLE: [220, 220, 220],
             WALK: [200, 240, 200],
+            DIM_IDLE: [120, 120, 140],
+            DIM_WALK: [100, 120, 140],
             HIT: [255, 100, 100],
             FALL: [180, 80, 220],
-            DIM: [160, 120, 60],
             EXTINGUISH: [60, 60, 80],
             DEAD: [80, 80, 120],
         };

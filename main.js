@@ -190,17 +190,22 @@ new p5((p) => {
     let visionPanDir = 0;
     const VISION_PAN_MS = 600;
 
+    // ── Torch flicker state ───────────────────────────────────
+    // A slow-moving Perlin noise offset drives organic torch flicker.
+    // flickerOffset advances each frame; p.noise(flickerOffset) returns
+    // a smooth 0..1 value that slightly perturbs the torch radius in
+    // paintFog(), giving it a living, breathing flame quality.
+    //
+    // FLICKER_SPEED controls how fast the noise crawls:
+    //   0.0005 = very slow drift (dreamy)
+    //   0.0012 = gentle flicker (default — feels like a torch indoors)
+    //   0.003  = agitated flicker (windy torch)
+    let flickerOffset = 0;
+    const FLICKER_SPEED = 0.0012;
+
     // ── Cursor tracking ───────────────────────────────────────
-    // We set cursor:pointer whenever the mouse is over any button.
-    // drawButton() calls this to register hover rectangles each frame,
-    // and at the end of draw() we flip the CSS cursor accordingly.
     let _anyButtonHovered = false;
 
-    /**
-     * Called by drawButton (via utils.js) to tell main.js the cursor
-     * should be a pointer this frame. We expose it on the p instance
-     * so utils.js can reach it without a circular import.
-     */
     p._registerButtonHover = () => {
         _anyButtonHovered = true;
     };
@@ -236,7 +241,7 @@ new p5((p) => {
             'assets/traps/traps-light.png',
             'assets/traps/traps-dark.png',
             'assets/powerups/powerups.png',
-            'assets/player/player.png',
+            'assets/player/player-v2.png',
         ];
 
         for (const path of paths) {
@@ -313,7 +318,7 @@ new p5((p) => {
         p.noSmooth();
         scaleFactor = getScaleFactor(p);
         powerupSheetImg = imgCache['assets/powerups/powerups.png'] || null;
-        playerImg = imgCache['assets/player/player.png'] || null;
+        playerImg = imgCache['assets/player/player-v2.png'] || null;
     };
 
     p.draw = () => {
@@ -326,12 +331,17 @@ new p5((p) => {
 
         if (currentGameState === GAME_STATE.PAUSED) dt = 0;
 
+        // ── Advance torch flicker noise ────────────────────────
+        // Only advance when actually playing — no flicker drift in menus or pause.
+        // Cap dt to prevent large jumps after tab switches / focus loss.
+        if (
+            currentGameState === GAME_STATE.PLAYING &&
+            gamePhase === GAME_PHASE.PLAYING
+        ) {
+            flickerOffset += Math.min(dt, 50) * FLICKER_SPEED;
+        }
+
         // ── Background ────────────────────────────────────────
-        // PLAYING        → plain black (game world fills the screen)
-        // PAUSED /
-        // VICTORY /
-        // GAMEOVER       → brick bg matching the current level's tileset
-        // All menus      → brick bg driven by highest unlocked level
         if (currentGameState === GAME_STATE.PLAYING) {
             p.background(0);
         } else {
@@ -402,8 +412,6 @@ new p5((p) => {
             });
 
             if (currentGameState === GAME_STATE.PAUSED) {
-                // Draw brick background over the game world so the maze
-                // is hidden behind the pause screen (same key as above).
                 drawBackground(p, {
                     scrollOffset: currentTime,
                     tilesetKey: bgTilesetKeyForLevel(currentLevel),
@@ -441,7 +449,6 @@ new p5((p) => {
         }
 
         // ── Cursor update ──────────────────────────────────────
-        // Set CSS cursor based on whether any button was hovered this frame.
         p.canvas.style.cursor = _anyButtonHovered ? 'pointer' : 'default';
     };
 
@@ -516,7 +523,7 @@ new p5((p) => {
         trapSheetImg = imgCache[assets.traps] || null;
 
         const levelData = LEVELS[difficulty];
-        maze = levelData.maze;
+        maze = levelData.maze.map((row) => row.slice());
         gridRows = maze.length;
         gridColumns = maze[0].length;
         worldWidth = gridColumns * TILE_SIZE;
@@ -556,6 +563,9 @@ new p5((p) => {
         shakeTimer = 0;
         visionTransitionAlpha = 1;
         visionPanDir = 0;
+        // Reset flicker to a random seed so each level starts with
+        // a different phase of the flicker cycle.
+        flickerOffset = Math.random() * 1000;
     }
 
     // ── World Rendering ───────────────────────────────────────
@@ -641,6 +651,7 @@ new p5((p) => {
             gridRows,
             gridColumns,
             torchRadius,
+            flickerSeed: p.noise(flickerOffset),
         });
 
         if (
@@ -709,6 +720,10 @@ new p5((p) => {
         trapTimer += dt;
         trapDamageTimer -= dt;
 
+        // isDark must be resolved before movePlayer so the correct
+        // idle/walk vs dim_idle/dim_walk state is selected each frame.
+        const isDark = darknessEffectTimer > 0;
+
         moveTimer = movePlayer(
             p,
             player,
@@ -716,6 +731,7 @@ new p5((p) => {
             maze,
             gridRows,
             gridColumns,
+            isDark,
         );
 
         const trapResult = checkStandingOnTrap({
@@ -740,16 +756,30 @@ new p5((p) => {
                 pendingReset = true;
                 resetDelayTimer = FALL_ANIM_MS;
             },
-            onDarkness: () => {},
+            onDarkness: () => {
+                // Only trigger dim if not already in a dim or locked state.
+                // triggerDimAnim picks DIM_IDLE or DIM_WALK based on current motion.
+                if (
+                    player.animState !== 'DIM_IDLE' &&
+                    player.animState !== 'DIM_WALK' &&
+                    player.animState !== 'DEAD' &&
+                    player.animState !== 'EXTINGUISH'
+                ) {
+                    triggerDimAnim(player);
+                }
+            },
         });
         trapDamageTimer = trapResult.trapDamageTimer;
         darknessEffectTimer = trapResult.darknessEffectTimer;
         torchRadius = trapResult.torchRadius;
 
-        const isDark = darknessEffectTimer > 0;
-        if (isDark && !wasDark) triggerDimAnim(player);
-        if (!isDark && wasDark && player.animState === 'DIM')
-            setAnim(player, 'IDLE');
+        // When darkness expires, snap back to normal idle/walk.
+        // movePlayer handles the ongoing per-frame switching while dark;
+        // this only handles the moment the timer hits zero.
+        if (!isDark && wasDark) {
+            if (player.animState === 'DIM_IDLE') setAnim(player, 'IDLE');
+            if (player.animState === 'DIM_WALK') setAnim(player, 'WALK');
+        }
         wasDark = isDark;
 
         const prevVisionTimer = visionEffectTimer;

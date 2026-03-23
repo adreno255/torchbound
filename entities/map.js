@@ -130,15 +130,6 @@ const TRAP_ANIM = {
 };
 
 /**
- * Returns the source { sx, sy } in traps.png for a given trap tile
- * at the current trapTimer value.
- *
- * @param {number} tileId   — TILE_MAP.fireTrap / resetTrap / darknessTrap
- * @param {number} trapTimer — global ms elapsed (from main.js state)
- * @param {boolean} active  — whether the trap is currently in its active phase
- * @returns {{ sx: number, sy: number }}
- */
-/**
  * Returns the source { sx, sy } in traps.png for a given trap tile,
  * using the same offset logic as isTrapActive() so the animation frame
  * always starts at 0 at the beginning of each phase for this specific tile.
@@ -405,8 +396,6 @@ export function drawGrid(
             // ── Special tiles overlaid on floor ──────────────────────────
             switch (tile) {
                 case TILE_MAP.start:
-                    // Draw the start rune tile from row 7 of the tileset,
-                    // falling back to a green overlay if tileset lacks row 7.
                     if (tilesetImg) {
                         drawTile(p, tilesetImg, TILES.start_tile, dx, dy);
                     } else {
@@ -415,7 +404,6 @@ export function drawGrid(
                     break;
 
                 case TILE_MAP.exit:
-                    // Draw the exit marker tile from row 7 of the tileset.
                     if (tilesetImg) {
                         drawTile(p, tilesetImg, TILES.exit_tile, dx, dy);
                     } else {
@@ -443,7 +431,6 @@ export function drawGrid(
                             T,
                         );
                     } else {
-                        // Fallback colored rects
                         const PU_FALLBACK = {
                             [TILE_MAP.timePowerUp]: [255, 255, 0, 190],
                             [TILE_MAP.torchPowerUp]: [255, 150, 0, 190],
@@ -463,12 +450,9 @@ export function drawGrid(
                     break;
 
                 default:
-                    // ── Animated trap sprites ─────────────────────────────
                     if (TRAPS[tile]) {
                         const active = isTrapActiveFn(tile, x, y);
                         if (trapSheetImg) {
-                            // Draw frame from spritesheet — pass x,y so the offset
-                            // matches isTrapActive and frame 0 aligns with phase start
                             const src = trapFrameSrc(
                                 tile,
                                 x,
@@ -488,7 +472,6 @@ export function drawGrid(
                                 T,
                             );
                         } else {
-                            // Fallback: plain colored rect (no spritesheet loaded)
                             const FALLBACK = {
                                 [TILE_MAP.fireTrap]: active
                                     ? [200, 80, 50, 200]
@@ -547,24 +530,48 @@ export function createFogLayer(p, worldWidth, worldHeight) {
     return layer;
 }
 
+// ── Torch glow color stops ────────────────────────────────────────────────
+// Defines the warm-to-cold radial gradient for the torch fog effect.
+//
+// Each stop: [radiusFraction (0=center, 1=outerPx), r, g, b, alpha]
+//   - Center:        warm amber-white core        — very bright, low alpha (faint overlay)
+//   - Inner ring:    golden amber warmth           — the "torch halo"
+//   - Mid ring:      deep amber-brown transition   — where warmth fades
+//   - Outer ring:    cold near-black               — encroaching darkness
+//   - Edge:          pure black, fully opaque      — complete darkness
+//
+// The alpha channel here controls *how much black fog* sits on top of
+// the world — 0 = fully visible, 255 = pitch black.
+const TORCH_GRADIENT_STOPS = [
+    { t: 0.0, r: 255, g: 180, b: 80, a: 0 }, // core: warm transparent
+    { t: 0.18, r: 220, g: 120, b: 30, a: 8 }, // warm amber halo
+    { t: 0.38, r: 140, g: 60, b: 15, a: 60 }, // amber → brown transition
+    { t: 0.58, r: 60, g: 20, b: 8, a: 140 }, // deep brown shadows
+    { t: 0.75, r: 15, g: 6, b: 2, a: 210 }, // near-black
+    { t: 0.88, r: 4, g: 2, b: 1, a: 245 }, // almost solid dark
+    { t: 1.0, r: 0, g: 0, b: 0, a: 255 }, // pure black edge
+];
+
 /**
- * Repaints the fog layer based on the player's smooth render position.
- * Uses renderX/renderY (pixel-space floats) rather than gridX/gridY so
- * the torch circle glides with the sprite instead of jumping a full tile
- * per step.  All distance maths is done in pixels; torchRadius is scaled
- * by TILE_SIZE before comparison so it still reads as "tiles of radius".
+ * Repaints the fog layer using a smooth radial gradient torch glow.
+ *
+ * The effect layers two passes on the fog graphics context:
+ *   1. A full black fill (complete darkness baseline)
+ *   2. A canvas2D radial gradient "punched" over the player using
+ *      destination-out blending to reveal the world beneath, with warm
+ *      amber-to-black color stops creating the torch atmosphere.
+ *
+ * Uses renderX/renderY for smooth glide with the player sprite.
  *
  * @param {object}   p
- * @param {object}   fogLayer - p5.Graphics
+ * @param {object}   fogLayer     - p5.Graphics
  * @param {object}   params
  * @param {object}   params.player
- * @param {number}   params.gridRows
- * @param {number}   params.gridColumns
- * @param {number}   params.torchRadius  - radius in tile units (e.g. 3)
+ * @param {number}   params.torchRadius   - radius in tile units (e.g. 2.5)
+ * @param {number}   [params.flickerSeed] - noise seed offset for flicker (0..1 range, optional)
  */
-function paintFog(p, fogLayer, { player, gridRows, gridColumns, torchRadius }) {
-    fogLayer.clear();
-    fogLayer.noStroke();
+function paintFog(p, fogLayer, { player, torchRadius, flickerSeed = 0 }) {
+    const ctx = fogLayer.drawingContext;
 
     // Torch centre in pixel space — use renderX/renderY (smooth) with
     // a fallback to the logical grid position before the first draw tick.
@@ -572,28 +579,107 @@ function paintFog(p, fogLayer, { player, gridRows, gridColumns, torchRadius }) {
     const cy = (player.renderY ?? player.gridY * TILE_SIZE) + TILE_SIZE / 2;
 
     // Convert radius from tile units to pixels.
-    const innerPx = (torchRadius - 1) * TILE_SIZE;
-    const outerPx = (torchRadius + 1) * TILE_SIZE;
+    // The outer radius defines the hard darkness edge.
+    // A small flicker offset is applied to both radii for organic movement.
+    const flickerScale = 0.06; // ±6% flicker — subtle but visible
+    const flicker = 1.0 + (flickerSeed - 0.5) * 2.0 * flickerScale;
 
-    for (let y = 0; y < gridRows; y++) {
-        for (let x = 0; x < gridColumns; x++) {
-            // Distance from torch centre to this tile's centre (pixels).
-            const tileCx = x * TILE_SIZE + TILE_SIZE / 2;
-            const tileCy = y * TILE_SIZE + TILE_SIZE / 2;
-            const distance = Math.sqrt(
-                (tileCx - cx) * (tileCx - cx) + (tileCy - cy) * (tileCy - cy),
-            );
+    const innerPx = Math.max(0, (torchRadius - 0.5) * TILE_SIZE * flicker);
+    const outerPx = Math.max(0, (torchRadius + 1.5) * TILE_SIZE * flicker);
 
-            const darkness = p.constrain(
-                p.map(distance, innerPx, outerPx, 0, 255),
-                0,
-                255,
-            );
-
-            fogLayer.fill(0, darkness);
-            fogLayer.rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-        }
+    // If the torch is fully extinguished, just fill pure black and return early.
+    if (outerPx === 0) {
+        fogLayer.clear();
+        ctx.fillStyle = 'rgb(0,0,0)';
+        ctx.fillRect(0, 0, fogLayer.width, fogLayer.height);
+        return;
     }
+
+    // ── Step 1: fill everything black (baseline darkness) ─────────────────
+    fogLayer.clear();
+    ctx.fillStyle = 'rgb(0,0,0)';
+    ctx.fillRect(0, 0, fogLayer.width, fogLayer.height);
+
+    // ── Step 2: punch torch glow using destination-out blend ──────────────
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerPx);
+
+    for (const stop of TORCH_GRADIENT_STOPS) {
+        const eraseAmount = 1.0 - stop.a / 255.0;
+        grad.addColorStop(
+            stop.t,
+            `rgba(${stop.r},${stop.g},${stop.b},${eraseAmount.toFixed(3)})`,
+        );
+    }
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerPx, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // ── Step 3: Warm bloom ↔ cold dark bloom crossfade ────────────────────
+    // As the torch shrinks, glowPx (= innerPx * 1.8) descends toward 0.
+    // Instead of a hard branch, both gradients are drawn simultaneously with
+    // complementary alphas that crossfade across a TILE_SIZE-wide window,
+    // giving a seamless warm-amber → cold-black transition.
+    const glowPx = innerPx * 1.8;
+    const FADE_WINDOW = TILE_SIZE * 1.5; // px range over which crossfade occurs
+    // warmT: 1.0 at full torch, 0.0 once glowPx <= 0
+    const warmT = Math.max(0, Math.min(1, glowPx / FADE_WINDOW));
+    const darkT = 1.0 - warmT;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Warm amber gradient — fades out as torch shrinks
+    if (warmT > 0 && glowPx > 0) {
+        const warmGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowPx);
+        warmGrad.addColorStop(
+            0.0,
+            `rgba(255, 160, 40, ${(0.18 * warmT).toFixed(3)})`,
+        );
+        warmGrad.addColorStop(
+            0.3,
+            `rgba(200, 100, 20, ${(0.1 * warmT).toFixed(3)})`,
+        );
+        warmGrad.addColorStop(
+            0.65,
+            `rgba(120,  50, 10, ${(0.04 * warmT).toFixed(3)})`,
+        );
+        warmGrad.addColorStop(1.0, `rgba(  0,   0,  0, 0.00)`);
+        ctx.fillStyle = warmGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, glowPx, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Cold dark gradient — fades in as torch shrinks, uses outerPx as radius
+    if (darkT > 0 && outerPx > 0) {
+        const darkGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerPx);
+        darkGrad.addColorStop(0.0, `rgba(0, 0, 0, 0.00)`);
+        darkGrad.addColorStop(
+            0.35,
+            `rgba(2, 2, 4, ${(0.55 * darkT).toFixed(3)})`,
+        );
+        darkGrad.addColorStop(
+            0.65,
+            `rgba(1, 1, 3, ${(0.82 * darkT).toFixed(3)})`,
+        );
+        darkGrad.addColorStop(
+            1.0,
+            `rgba(0, 0, 2, ${(0.97 * darkT).toFixed(3)})`,
+        );
+        ctx.fillStyle = darkGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, outerPx, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
 }
 
 /**
@@ -610,6 +696,7 @@ function paintFog(p, fogLayer, { player, gridRows, gridColumns, torchRadius }) {
  * @param {number}  params.gridRows
  * @param {number}  params.gridColumns
  * @param {number}  params.torchRadius
+ * @param {number}  [params.flickerSeed]  - p.noise() value for flicker (0..1)
  */
 export function renderFog(p, fogLayer, params) {
     const { enableFog, enableCamera, gamePhase, fogOpacity } = params;
