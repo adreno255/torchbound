@@ -78,7 +78,13 @@ export function createPlayer() {
  * Scans the maze for the start tile, sets logical position,
  * and SNAPS renderX/renderY so there is no lerp artefact on spawn/reset.
  */
-export function findStartTile(player, maze, gridRows, gridColumns) {
+export function findStartTile(
+    player,
+    maze,
+    gridRows,
+    gridColumns,
+    isDark = false,
+) {
     for (let y = 0; y < gridRows; y++) {
         for (let x = 0; x < gridColumns; x++) {
             if (maze[y][x] === 2 /* TILE_MAP.start */) {
@@ -86,7 +92,7 @@ export function findStartTile(player, maze, gridRows, gridColumns) {
                 player.gridY = y;
                 player.renderX = x * T;
                 player.renderY = y * T;
-                player.animState = 'IDLE';
+                player.animState = isDark ? 'DIM_IDLE' : 'IDLE';
                 player.dir = 'S';
                 return;
             }

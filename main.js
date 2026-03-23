@@ -523,7 +523,7 @@ new p5((p) => {
         trapSheetImg = imgCache[assets.traps] || null;
 
         const levelData = LEVELS[difficulty];
-        maze = levelData.maze.map((row) => row.slice());
+        maze = levelData.maze;
         gridRows = maze.length;
         gridColumns = maze[0].length;
         worldWidth = gridColumns * TILE_SIZE;
@@ -711,7 +711,13 @@ new p5((p) => {
             resetDelayTimer -= dt;
             if (resetDelayTimer <= 0) {
                 pendingReset = false;
-                findStartTile(player, maze, gridRows, gridColumns);
+                findStartTile(
+                    player,
+                    maze,
+                    gridRows,
+                    gridColumns,
+                    darknessEffectTimer > 0,
+                );
             }
             return;
         }
@@ -722,7 +728,10 @@ new p5((p) => {
 
         // isDark must be resolved before movePlayer so the correct
         // idle/walk vs dim_idle/dim_walk state is selected each frame.
-        const isDark = darknessEffectTimer > 0;
+        // Powerups (torch boost or vision) override darkness visually —
+        // the timer may still be running but the player acts normally.
+        const powerupActive = torchEffectTimer > 0 || visionEffectTimer > 0;
+        const isDark = darknessEffectTimer > 0 && !powerupActive;
 
         moveTimer = movePlayer(
             p,
@@ -773,9 +782,8 @@ new p5((p) => {
         darknessEffectTimer = trapResult.darknessEffectTimer;
         torchRadius = trapResult.torchRadius;
 
-        // When darkness expires, snap back to normal idle/walk.
-        // movePlayer handles the ongoing per-frame switching while dark;
-        // this only handles the moment the timer hits zero.
+        // Snap back to normal idle/walk when darkness ends OR when a powerup
+        // activates mid-darkness (powerupActive suppresses dim states).
         if (!isDark && wasDark) {
             if (player.animState === 'DIM_IDLE') setAnim(player, 'IDLE');
             if (player.animState === 'DIM_WALK') setAnim(player, 'WALK');
