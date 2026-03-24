@@ -45,6 +45,7 @@ import {
     drawTutorialPrompt,
     drawPlayerIdOverlay,
     isAllowedNameChar,
+    drawAbout,
 } from './scenes/menu.js';
 import {
     TUTORIAL_MAZE,
@@ -126,6 +127,7 @@ new p5((p) => {
     let hudHeartImg = null;
     let hudClockImg = null;
     let copyIconImg = null;
+    let developerImg = null;
 
     let fontHeading = null;
     let fontBody = null;
@@ -164,6 +166,8 @@ new p5((p) => {
     let player = createPlayer();
     let moveTimer = 0;
     let levelScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+    const aboutScroll = { y: 0, targetY: 0, maxScroll: 0 };
 
     // ── Account state ─────────────────────────────────────────
     let draftName = '';
@@ -237,6 +241,7 @@ new p5((p) => {
             hudHeart: hudHeartImg,
             hudClock: hudClockImg,
             copyIcon: copyIconImg,
+            developerImg,
         };
     }
 
@@ -311,6 +316,11 @@ new p5((p) => {
             'assets/ui/copy-icon.png',
             () => console.log('Loaded: copy-icon.png'),
             () => console.warn('Not found: assets/ui/copy-icon.png'),
+        );
+        developerImg = p.loadImage(
+            'assets/ui/developer_image.jpg',
+            () => console.log('Loaded: developer_image.jpg'),
+            () => console.warn('Not found: assets/ui/developer_image.jpg'),
         );
 
         fontHeading = p.loadFont(
@@ -617,6 +627,20 @@ new p5((p) => {
 
         e.preventDefault();
     });
+
+    // ── Mouse scroll support ───────────────────────────────
+    p.mouseWheel = (event) => {
+        if (currentGameState === GAME_STATE.ABOUT) {
+            aboutScroll.targetY = Math.max(
+                0,
+                Math.min(
+                    aboutScroll.maxScroll,
+                    aboutScroll.targetY + event.delta,
+                ),
+            );
+            return false; // prevent page scroll
+        }
+    };
 
     // ── Screen-effect helpers ─────────────────────────────────
 
@@ -1177,6 +1201,11 @@ new p5((p) => {
                     onLeaderboard: () => {
                         currentGameState = GAME_STATE.GLOBAL_LEADERBOARD;
                     },
+                    onAbout: () => {
+                        aboutScroll.y = 0;
+                        aboutScroll.targetY = 0;
+                        currentGameState = GAME_STATE.ABOUT;
+                    },
                     fonts,
                     assets,
                 });
@@ -1284,6 +1313,16 @@ new p5((p) => {
                     onBack: () => {
                         currentGameState = GAME_STATE.MENU;
                     },
+                    fonts,
+                    assets,
+                });
+                break;
+            case GAME_STATE.ABOUT:
+                drawAbout(p, {
+                    onBack: () => {
+                        currentGameState = GAME_STATE.MENU;
+                    },
+                    scrollState: aboutScroll,
                     fonts,
                     assets,
                 });

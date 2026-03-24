@@ -182,6 +182,7 @@ export function drawMainMenu(
         onTutorial,
         onAccounts,
         onLeaderboard,
+        onAbout,
         fonts,
         assets,
     },
@@ -203,13 +204,13 @@ export function drawMainMenu(
         p.text(
             `Logged in as: ${displayName}`,
             p.windowWidth / 2,
-            p.windowHeight / 2 - 10,
+            p.windowHeight / 2 - 30,
         );
     }
 
     const firstBtnY = displayName
-        ? p.windowHeight / 2 + 50
-        : p.windowHeight / 2 + 30;
+        ? p.windowHeight / 2 + 30
+        : p.windowHeight / 2 + 10;
 
     drawButton(
         p,
@@ -250,6 +251,17 @@ export function drawMainMenu(
         p.windowWidth / 2,
         firstBtnY + 210,
         onLeaderboard,
+        300,
+        50,
+        fonts,
+        assets,
+    );
+    drawButton(
+        p,
+        'ABOUT',
+        p.windowWidth / 2,
+        firstBtnY + 280,
+        onAbout,
         300,
         50,
         fonts,
@@ -1064,6 +1076,359 @@ export function drawLeaderboard(
         'BACK',
         p.windowWidth / 2,
         p.windowHeight - 80,
+        onBack,
+        300,
+        50,
+        fonts,
+        assets,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// About Screen
+// ---------------------------------------------------------------------------
+
+/**
+ * Scrollable about screen showing game synopsis, goal, AI disclaimer, and
+ * developer info with a photo.
+ *
+ * Scroll state is kept in a module-level object so it persists while the
+ * screen is open and resets when the screen is entered fresh.
+ *
+ * @param {object} p
+ * @param {object} params
+ * @param {function} params.onBack
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]   - expects assets.developerImg (p5.Image)
+ * @param {object}   params.scrollState - { y, targetY } — caller owns, reset on entry
+ */
+export function drawAbout(p, { onBack, fonts, assets, scrollState }) {
+    // ── Smooth scroll ──────────────────────────────────────────────────────
+    // scrollState.y   : current rendered offset
+    // scrollState.targetY : where the user has scrolled to
+    scrollState.y += (scrollState.targetY - scrollState.y) * 0.12;
+
+    const cx = p.windowWidth / 2;
+    const scrollY = -Math.round(scrollState.y);
+
+    // ── Title ──────────────────────────────────────────────────────────────
+    p.textAlign(p.CENTER, p.CENTER);
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(72);
+    p.fill(80);
+    p.text('ABOUT', cx, 103);
+    p.fill(255);
+    p.text('ABOUT', cx, 100);
+
+    // ── Scrollable content ─────────────────────────────────────────────────
+    // Everything below the title is clipped and scrolled.
+    const CLIP_TOP = 145;
+    const CLIP_BOTTOM = p.windowHeight - 90;
+    const CLIP_H = CLIP_BOTTOM - CLIP_TOP;
+
+    p.drawingContext.save();
+    p.drawingContext.beginPath();
+    p.drawingContext.rect(0, CLIP_TOP, p.windowWidth, CLIP_H);
+    p.drawingContext.clip();
+
+    // virtual canvas origin
+    const oy = CLIP_TOP + scrollY;
+
+    // ── Card helper ────────────────────────────────────────────────────────
+    function drawCard(cardCY, cardW, cardH) {
+        p.push();
+        p.rectMode(p.CENTER);
+        p.fill(28, 18, 10, 240);
+        p.stroke(120, 80, 30);
+        p.strokeWeight(2);
+        p.rect(cx, cardCY, cardW, cardH, 8);
+        p.pop();
+    }
+
+    // ── Section: Synopsis ─────────────────────────────────────────────────
+    const CARD_W = 700;
+    const PAD = 40;
+
+    // Synopsis card
+    const synopsisLines = [
+        'Torchbound is a top-down 2D dungeon maze game built with p5.js.',
+        'Venture into the depths of an ancient dungeon armed with nothing',
+        'but a flickering torch and your wits. The maze is shrouded in',
+        'darkness — only the warm glow around you reveals the path ahead.',
+        '',
+        'Navigate shifting corridors, avoid deadly traps, and collect',
+        'power-ups as you race against time to find the exit. Each level',
+        'plunges you deeper into the Abyssal Core, where the walls grow',
+        'darker, the traps more vicious, and the mazes ever more complex.',
+    ];
+    const synopsisCardH = 50 + synopsisLines.length * 26 + PAD;
+    const synopsisCY = oy + 30 + synopsisCardH / 2;
+
+    drawCard(synopsisCY, CARD_W, synopsisCardH);
+
+    p.push();
+    // Section heading
+    p.stroke(200, 140, 40, 160);
+    p.strokeWeight(1);
+    p.line(
+        cx - CARD_W / 2 + 24,
+        synopsisCY - synopsisCardH / 2 + 46,
+        cx + CARD_W / 2 - 24,
+        synopsisCY - synopsisCardH / 2 + 46,
+    );
+    p.pop();
+
+    p.textAlign(p.CENTER, p.CENTER);
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(26);
+    p.fill(80, 50, 15);
+    p.text('Synopsis', cx, synopsisCY - synopsisCardH / 2 + 27);
+    p.fill(255, 220, 140);
+    p.text('Synopsis', cx, synopsisCY - synopsisCardH / 2 + 26);
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(16);
+    synopsisLines.forEach((line, i) => {
+        const ly = synopsisCY - synopsisCardH / 2 + 64 + i * 26;
+        p.fill(60, 35, 10, 160);
+        p.text(line, cx + 1, ly + 1);
+        p.fill(210, 190, 155);
+        p.text(line, cx, ly);
+    });
+
+    // ── Section: Game Goal ────────────────────────────────────────────────
+    const goalLines = [
+        'Reach the glowing exit tile at the end of each maze.',
+        'Preserve as much HP and time as possible — your final score',
+        'is calculated from both. A perfect run means maximum points.',
+        '',
+        'Complete all five levels to escape the dungeon entirely and',
+        'cement your name in the Hall of Fame.',
+    ];
+    const goalCardH = 50 + goalLines.length * 26 + PAD;
+    const goalTop = synopsisCY + synopsisCardH / 2 + 20;
+    const goalCY = goalTop + goalCardH / 2;
+
+    drawCard(goalCY, CARD_W, goalCardH);
+
+    p.push();
+    p.stroke(200, 140, 40, 160);
+    p.strokeWeight(1);
+    p.line(
+        cx - CARD_W / 2 + 24,
+        goalCY - goalCardH / 2 + 46,
+        cx + CARD_W / 2 - 24,
+        goalCY - goalCardH / 2 + 46,
+    );
+    p.pop();
+
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(26);
+    p.textAlign(p.CENTER, p.CENTER);
+    p.fill(80, 50, 15);
+    p.text('Objective', cx, goalCY - goalCardH / 2 + 27);
+    p.fill(255, 220, 140);
+    p.text('Objective', cx, goalCY - goalCardH / 2 + 26);
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(16);
+    goalLines.forEach((line, i) => {
+        const ly = goalCY - goalCardH / 2 + 64 + i * 26;
+        p.fill(60, 35, 10, 160);
+        p.text(line, cx + 1, ly + 1);
+        p.fill(210, 190, 155);
+        p.text(line, cx, ly);
+    });
+
+    // ── Section: AI Disclaimer ────────────────────────────────────────────
+    const aiLines = [
+        'This game was developed with the assistance of generative AI tools,',
+        'including Claude by Anthropic, for code generation, asset planning,',
+        'and design iteration. All creative direction, academic ownership,',
+        'and final implementation decisions belong to the developer.',
+    ];
+    const aiCardH = 50 + aiLines.length * 26 + PAD;
+    const aiTop = goalCY + goalCardH / 2 + 20;
+    const aiCY = aiTop + aiCardH / 2;
+
+    drawCard(aiCY, CARD_W, aiCardH);
+
+    p.push();
+    p.stroke(200, 140, 40, 160);
+    p.strokeWeight(1);
+    p.line(
+        cx - CARD_W / 2 + 24,
+        aiCY - aiCardH / 2 + 46,
+        cx + CARD_W / 2 - 24,
+        aiCY - aiCardH / 2 + 46,
+    );
+    p.pop();
+
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(26);
+    p.textAlign(p.CENTER, p.CENTER);
+    p.fill(80, 50, 15);
+    p.text('AI Disclosure', cx, aiCY - aiCardH / 2 + 27);
+    p.fill(200, 160, 60); // amber-gold tint for disclaimer
+    p.text('AI Disclosure', cx, aiCY - aiCardH / 2 + 26);
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(16);
+    aiLines.forEach((line, i) => {
+        const ly = aiCY - aiCardH / 2 + 64 + i * 26;
+        p.fill(60, 35, 10, 160);
+        p.text(line, cx + 1, ly + 1);
+        p.fill(210, 190, 155);
+        p.text(line, cx, ly);
+    });
+
+    // ── Section: Developer Info ───────────────────────────────────────────
+    const devImg = assets?.developerImg ?? null;
+    const IMG_SIZE = 140; // displayed size
+    const infoLines = [
+        ['Course', 'Graphics and Visual Computing'],
+        ['Institution', 'University of Caloocan City'],
+        ['Program', 'Bachelor of Science in Computer Science'],
+        ['Developer', 'Angelo Mark Jr. S. Flores'],
+        ['Adviser', 'Prof. Edrick Mendoza Estorel'],
+        ['Year', '2026'],
+    ];
+    const devCardH = Math.max(
+        IMG_SIZE + PAD * 2,
+        infoLines.length * 32 + 50 + PAD,
+    );
+    const devTop = aiCY + aiCardH / 2 + 20;
+    const devCY = devTop + devCardH / 2;
+
+    drawCard(devCY, CARD_W, devCardH);
+
+    p.push();
+    p.stroke(200, 140, 40, 160);
+    p.strokeWeight(1);
+    p.line(
+        cx - CARD_W / 2 + 24,
+        devCY - devCardH / 2 + 46,
+        cx + CARD_W / 2 - 24,
+        devCY - devCardH / 2 + 46,
+    );
+    p.pop();
+
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(26);
+    p.textAlign(p.CENTER, p.CENTER);
+    p.fill(80, 50, 15);
+    p.text('Developer', cx, devCY - devCardH / 2 + 27);
+    p.fill(255, 220, 140);
+    p.text('Developer', cx, devCY - devCardH / 2 + 26);
+
+    // Photo on the left half
+    const imgX = cx - CARD_W / 2 + PAD + IMG_SIZE / 2;
+    const imgY = devCY + 10;
+
+    if (devImg) {
+        // Circular clip for the photo
+        p.drawingContext.save();
+        p.drawingContext.beginPath();
+        p.drawingContext.arc(imgX, imgY, IMG_SIZE / 2, 0, Math.PI * 2);
+        p.drawingContext.clip();
+        p.imageMode(p.CENTER);
+        p.image(devImg, imgX, imgY, IMG_SIZE, IMG_SIZE);
+        p.drawingContext.restore();
+
+        // Circle border
+        p.push();
+        p.noFill();
+        p.stroke(160, 110, 40, 200);
+        p.strokeWeight(3);
+        p.ellipse(imgX, imgY, IMG_SIZE, IMG_SIZE);
+        p.pop();
+    } else {
+        // Fallback silhouette
+        p.push();
+        p.fill(50, 35, 20, 200);
+        p.stroke(120, 80, 30);
+        p.strokeWeight(2);
+        p.ellipse(imgX, imgY, IMG_SIZE, IMG_SIZE);
+        p.fill(120, 90, 50);
+        p.noStroke();
+        p.textSize(48);
+        p.textAlign(p.CENTER, p.CENTER);
+        p.text('?', imgX, imgY);
+        p.pop();
+    }
+
+    // Info lines on the right half
+    const infoX = cx - CARD_W / 2 + PAD + IMG_SIZE + 24;
+    const infoStartY = devCY - devCardH / 2 + 64;
+    const infoRightX = cx + CARD_W / 2 - PAD;
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(15);
+    infoLines.forEach(([label, value], i) => {
+        const ly = infoStartY + i * 32;
+
+        // Label (dimmer amber)
+        p.textAlign(p.LEFT, p.CENTER);
+        p.fill(160, 120, 60);
+        p.text(`${label}:`, infoX, ly);
+
+        // Value (bright parchment)
+        p.textAlign(p.RIGHT, p.CENTER);
+        p.fill(60, 35, 10, 160);
+        p.text(value, infoRightX + 1, ly + 1);
+        p.fill(220, 200, 155);
+        p.text(value, infoRightX, ly);
+    });
+
+    // ── Total virtual content height ──────────────────────────────────────
+    const totalContentH = devCY + devCardH / 2 - oy + 20;
+    // Max scroll = how far content extends beyond the clip area
+    const maxScroll = Math.max(0, totalContentH - CLIP_H);
+    scrollState.maxScroll = maxScroll;
+
+    p.drawingContext.restore();
+
+    // ── Scroll indicator ──────────────────────────────────────────────────
+    if (maxScroll > 0) {
+        const trackH = CLIP_H - 16;
+        const trackX = p.windowWidth - 14;
+        const trackY = CLIP_TOP + 8;
+        const thumbH = Math.max(30, (CLIP_H / totalContentH) * trackH);
+        const thumbT = scrollState.y / maxScroll;
+        const thumbY = trackY + thumbT * (trackH - thumbH);
+
+        p.push();
+        p.noStroke();
+        p.fill(40, 28, 14, 120);
+        p.rect(trackX - 4, trackY, 8, trackH, 4);
+        p.fill(160, 110, 40, 200);
+        p.rect(trackX - 4, thumbY, 8, thumbH, 4);
+        p.pop();
+    }
+
+    // ── Fade edges (top/bottom) ───────────────────────────────────────────
+    // top fade
+    p.push();
+    p.noStroke();
+    for (let i = 0; i < 24; i++) {
+        const t = 1 - i / 24;
+        p.fill(0, 0, 0, t * t * 200);
+        p.rect(0, CLIP_TOP + i, p.windowWidth, 1);
+    }
+    // bottom fade
+    for (let i = 0; i < 24; i++) {
+        const t = 1 - i / 24;
+        p.fill(0, 0, 0, t * t * 200);
+        p.rect(0, CLIP_BOTTOM - i, p.windowWidth, 1);
+    }
+    p.pop();
+
+    // ── Back button (always visible, outside scroll area) ─────────────────
+    drawButton(
+        p,
+        'BACK',
+        cx,
+        p.windowHeight - 44,
         onBack,
         300,
         50,

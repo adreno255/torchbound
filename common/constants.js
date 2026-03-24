@@ -26,6 +26,7 @@ export const GAME_STATE = {
     GAMEOVER: 'gameover',
     VICTORY: 'victory',
     GLOBAL_LEADERBOARD: 'global_leaderboard',
+    ABOUT: 'about',
 };
 
 export const GAME_PHASE = {
