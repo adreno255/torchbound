@@ -164,9 +164,11 @@ export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
     p.textAlign(p.CENTER, p.CENTER);
 
     if (fonts?.heading) p.textFont(fonts.heading);
-    p.fill(255);
-    p.textSize(32);
+    p.textSize(48);
+    p.fill(80);
     p.text('ENTER YOUR NAME', p.windowWidth / 2, p.windowHeight / 2 - 100);
+    p.fill(255);
+    p.text('ENTER YOUR NAME', p.windowWidth / 2, p.windowHeight / 2 - 103);
 
     p.textSize(48);
     p.fill(255, 255, 0);
