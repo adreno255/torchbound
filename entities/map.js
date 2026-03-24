@@ -49,7 +49,13 @@
 // whether one of the wall neighbors is a true boundary vs interior wall.
 // ============================================================
 
-import { TILE_SIZE, TILE_MAP, TRAPS, GAME_PHASE } from '../common/constants.js';
+import {
+    TILE_SIZE,
+    TILE_MAP,
+    TRAPS,
+    GAME_PHASE,
+    isTutorialMarker,
+} from '../common/constants.js';
 
 const T = TILE_SIZE; // 32
 
@@ -224,6 +230,13 @@ const OVR = {
 
 // ── Tile picker ───────────────────────────────────────────────────────────
 
+// ── Helper: is this tile value a wall for neighbour-detection purposes? ───
+// Tutorial markers and all non-wall tiles count as floor/open when deciding
+// which wall variant to use.
+function isWallTile(tile) {
+    return tile === TILE_MAP.wall;
+}
+
 /**
  * Returns the correct wall tile source for a given cell.
  * Distinguishes edge tiles (boundary neighbor) from inner tiles (wall neighbor)
@@ -237,10 +250,10 @@ function wallTileSrc(maze, gridRows, gridColumns, x, y) {
     const bW = x - 1 < 0;
 
     // Wall flags — boundary always counts as wall
-    const wN = bN || maze[y - 1][x] === TILE_MAP.wall;
-    const wS = bS || maze[y + 1][x] === TILE_MAP.wall;
-    const wE = bE || maze[y][x + 1] === TILE_MAP.wall;
-    const wW = bW || maze[y][x - 1] === TILE_MAP.wall;
+    const wN = bN || isWallTile(maze[y - 1][x]);
+    const wS = bS || isWallTile(maze[y + 1][x]);
+    const wE = bE || isWallTile(maze[y][x + 1]);
+    const wW = bW || isWallTile(maze[y][x - 1]);
 
     const mask = (wN ? 1 : 0) | (wE ? 2 : 0) | (wS ? 4 : 0) | (wW ? 8 : 0);
 
@@ -313,11 +326,15 @@ function wallTileSrc(maze, gridRows, gridColumns, x, y) {
  * whether that wall continues left and/or right.
  */
 function floorTileSrc(maze, gridRows, gridColumns, x, y) {
-    const wallAbove = y - 1 < 0 || maze[y - 1][x] === TILE_MAP.wall;
+    const above = y - 1 < 0 ? TILE_MAP.wall : maze[y - 1][x];
+    const wallAbove = isWallTile(above);
     if (!wallAbove) return TILES.floor;
 
-    const wl = x - 1 >= 0 && maze[y - 1][x - 1] === TILE_MAP.wall;
-    const wr = x + 1 < gridColumns && maze[y - 1][x + 1] === TILE_MAP.wall;
+    const leftAbove = x - 1 >= 0 ? maze[y - 1][x - 1] : TILE_MAP.wall;
+    const rightAbove = x + 1 < gridColumns ? maze[y - 1][x + 1] : TILE_MAP.wall;
+
+    const wl = isWallTile(leftAbove);
+    const wr = isWallTile(rightAbove);
 
     if (wl && wr) return TILES.fl_shadow;
     if (wl) return TILES.fl_shad_l;
@@ -392,6 +409,9 @@ export function drawGrid(
                 p.fill(58, 46, 66);
                 p.rect(dx, dy, T, T);
             }
+
+            // Tutorial markers — render as plain floor, no overlay needed
+            if (isTutorialMarker(tile)) continue;
 
             // ── Special tiles overlaid on floor ──────────────────────────
             switch (tile) {

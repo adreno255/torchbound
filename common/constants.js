@@ -15,9 +15,11 @@ export const TORCH_RADIUS_BASE = 2;
 
 export const GAME_STATE = {
     MENU: 'menu',
-    ACCOUNTS: 'accounts', // renamed from NAME_INPUT
+    ACCOUNTS: 'accounts',
     TUTORIAL_PROMPT: 'tutorial_prompt',
     TUTORIAL: 'tutorial',
+    TUTORIAL_CLEARED: 'tutorial_cleared',
+    TUTORIAL_GAMEOVER: 'tutorial_gameover',
     LEVEL_SELECT: 'level_select',
     PLAYING: 'playing',
     PAUSED: 'paused',
@@ -47,6 +49,19 @@ export const TILE_MAP = {
     spentTime: 11,
     spentTorch: 12,
     spentVision: 13,
+    // Tutorial stop-point markers (values 20–30, rendered as plain floor)
+    // A=20, D=21, B=22, E=23, C=24, F=25, G=26, H=27, I=28, J=29, K=30
+    tutorialMarkerA: 20,
+    tutorialMarkerD: 21,
+    tutorialMarkerB: 22,
+    tutorialMarkerE: 23,
+    tutorialMarkerC: 24,
+    tutorialMarkerF: 25,
+    tutorialMarkerG: 26,
+    tutorialMarkerH: 27,
+    tutorialMarkerI: 28,
+    tutorialMarkerJ: 29,
+    tutorialMarkerK: 30,
 };
 
 /**
@@ -66,21 +81,21 @@ export function getTrapDamage(level) {
 
 export const TRAPS = {
     4: {
-        name: 'fire',
+        name: 'spike',
         activeTime: 2000,
         inactiveTime: 1500,
         type: 'damage',
         randomized: true,
     },
     5: {
-        name: 'teleport',
+        name: 'pit',
         activeTime: 1000,
         inactiveTime: 2000,
         type: 'reset',
         randomized: true,
     },
     6: {
-        name: 'void',
+        name: 'darkness',
         activeTime: 1500,
         inactiveTime: 1500,
         type: 'darkness',
@@ -92,3 +107,14 @@ export const POWER_UP_DURATIONS = {
     TORCH: 5000,
     VISION: 3000,
 };
+
+/**
+ * Returns true if the given tile value is a tutorial stop-point marker.
+ * These tiles render as floor and have no effect on game logic.
+ *
+ * @param {number} tile
+ * @returns {boolean}
+ */
+export function isTutorialMarker(tile) {
+    return tile >= 20 && tile <= 30;
+}

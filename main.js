@@ -46,6 +46,16 @@ import {
     drawPlayerIdOverlay,
 } from './scenes/menu.js';
 import {
+    TUTORIAL_MAZE,
+    STOP_POINTS,
+    TUTORIAL_MARKERS,
+    STOP_PAUSE_MS,
+    createStopManager,
+    drawTutorialCard,
+    drawTutorialCleared,
+    drawTutorialGameOver,
+} from './scenes/tutorial.js';
+import {
     saveScore,
     getLeaderboard,
     getOverallLeaderboard,
@@ -155,10 +165,8 @@ new p5((p) => {
     let levelScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
     // ── Account state ─────────────────────────────────────────
-    // draftName is NOT committed until the user presses ENTER.
-    // Going Back discards it.
     let draftName = '';
-    let accountTab = 'create'; // 'create' | 'switch'
+    let accountTab = 'create';
     let accountError = '';
 
     function getActiveDisplayName() {
@@ -197,6 +205,14 @@ new p5((p) => {
     // ── Torch flicker state ───────────────────────────────────
     let flickerOffset = 0;
     const FLICKER_SPEED = 0.0012;
+
+    // ── Tutorial state ────────────────────────────────────────
+    let isTutorial = false;
+    // Phases:  'playing' | 'pausing' | 'card' | 'cleared' | 'gameover'
+    let tutorialPhase = 'playing';
+    let activeStopPoint = null; // the StopPoint object currently shown
+    let stopPauseTimer = 0; // countdown before card appears
+    const stopManager = createStopManager();
 
     // ── Cursor tracking ───────────────────────────────────────
     let _anyButtonHovered = false;
@@ -326,7 +342,15 @@ new p5((p) => {
         let dt = currentTime - lastTimeStamp;
         lastTimeStamp = currentTime;
 
-        if (currentGameState === GAME_STATE.PAUSED) dt = 0;
+        // Freeze dt when paused, or when a tutorial card is showing
+        const tutorialFrozen =
+            isTutorial &&
+            (tutorialPhase === 'pausing' ||
+                tutorialPhase === 'card' ||
+                tutorialPhase === 'cleared' ||
+                tutorialPhase === 'gameover');
+
+        if (currentGameState === GAME_STATE.PAUSED || tutorialFrozen) dt = 0;
 
         if (
             currentGameState === GAME_STATE.PLAYING &&
@@ -342,7 +366,10 @@ new p5((p) => {
             const useLevelKey =
                 currentGameState === GAME_STATE.PAUSED ||
                 currentGameState === GAME_STATE.VICTORY ||
-                currentGameState === GAME_STATE.GAMEOVER;
+                currentGameState === GAME_STATE.GAMEOVER ||
+                currentGameState === GAME_STATE.TUTORIAL ||
+                currentGameState === GAME_STATE.TUTORIAL_CLEARED ||
+                currentGameState === GAME_STATE.TUTORIAL_GAMEOVER;
 
             drawBackground(p, {
                 scrollOffset: currentTime,
@@ -418,14 +445,20 @@ new p5((p) => {
                         lastTimeStamp = p.millis();
                     },
                     onRetry: () => {
-                        loadLevel(currentLevel);
+                        if (isTutorial) {
+                            loadTutorial();
+                        } else {
+                            loadLevel(currentLevel);
+                        }
                         currentGameState = GAME_STATE.PLAYING;
                         p.loop();
                     },
                     onLevels: () => {
+                        isTutorial = false;
                         currentGameState = GAME_STATE.LEVEL_SELECT;
                     },
                     onMenu: () => {
+                        isTutorial = false;
                         currentGameState = GAME_STATE.MENU;
                     },
                     fonts: getFonts(),
@@ -433,7 +466,18 @@ new p5((p) => {
                 });
                 p.pop();
             } else {
-                handleGameplayLogic(dt);
+                // Tutorial card overlay — drawn on top of the game world
+                if (isTutorial && tutorialPhase === 'card' && activeStopPoint) {
+                    drawTutorialCard(
+                        p,
+                        activeStopPoint,
+                        onTutorialCardContinue,
+                        getFonts(),
+                        getAssets(),
+                    );
+                } else {
+                    handleGameplayLogic(dt);
+                }
             }
         } else {
             p.push();
@@ -479,7 +523,6 @@ new p5((p) => {
                         currentGameState = GAME_STATE.TUTORIAL_PROMPT;
                     }
                 } else {
-                    // switch account by Player ID
                     const trimmed = draftName.trim();
                     if (trimmed.length > 0) {
                         const found = readProfileById(trimmed);
@@ -498,7 +541,6 @@ new p5((p) => {
                 draftName = draftName.slice(0, -1);
                 accountError = '';
             } else if (p.key.length === 1) {
-                // IGNORE if Control (Windows/Linux) or Meta (Mac) is held down
                 if (!p.keyIsDown(p.CONTROL) && !p.keyIsDown(p.META)) {
                     const maxLen = accountTab === 'create' ? 12 : 24;
                     if (draftName.length < maxLen) {
@@ -511,6 +553,9 @@ new p5((p) => {
         }
 
         if (p.key === 'p' || p.key === 'P' || p.keyCode === 27) {
+            // Don't allow pause while a tutorial card is showing
+            if (isTutorial && tutorialPhase === 'card') return;
+
             if (currentGameState === GAME_STATE.PLAYING) {
                 currentGameState = GAME_STATE.PAUSED;
                 timerRunning = false;
@@ -565,6 +610,8 @@ new p5((p) => {
     function loadLevel(difficulty) {
         if (!LEVELS[difficulty]) return;
 
+        isTutorial = false;
+
         const assets = assetsForLevel(difficulty);
         tilesetImg = imgCache[assets.tileset] || null;
         trapSheetImg = imgCache[assets.traps] || null;
@@ -582,6 +629,41 @@ new p5((p) => {
         findStartTile(player, maze, gridRows, gridColumns);
 
         resetTimers(levelData.time);
+
+        gamePhase = GAME_PHASE.INTRO_REVEAL;
+        transitionAlpha = 0;
+        fogOpacity = 0;
+        introTimer = 0;
+    }
+
+    /**
+     * Loads the static tutorial level.
+     * Uses the map-light tileset and a generous 5-minute timer.
+     */
+    function loadTutorial() {
+        isTutorial = true;
+        tutorialPhase = 'playing';
+        activeStopPoint = null;
+        stopPauseTimer = 0;
+        stopManager.reset();
+
+        // Tutorial always uses the light tileset
+        tilesetImg = imgCache['assets/maps/map-light.png'] || null;
+        trapSheetImg = imgCache['assets/traps/traps-light.png'] || null;
+
+        // Deep copy the static maze so trap collection mutations don't persist
+        maze = TUTORIAL_MAZE.map((row) => row.slice());
+        gridRows = maze.length;
+        gridColumns = maze[0].length;
+        worldWidth = gridColumns * TILE_SIZE;
+        worldHeight = gridRows * TILE_SIZE;
+
+        fogLayer = createFogLayer(p, worldWidth, worldHeight);
+
+        player = createPlayer();
+        findStartTile(player, maze, gridRows, gridColumns);
+
+        resetTimers(300); // 5 minutes — plenty of time to read everything
 
         gamePhase = GAME_PHASE.INTRO_REVEAL;
         transitionAlpha = 0;
@@ -611,6 +693,42 @@ new p5((p) => {
         visionTransitionAlpha = 1;
         visionPanDir = 0;
         flickerOffset = Math.random() * 1000;
+    }
+
+    // ── Tutorial stop-point helpers ───────────────────────────
+
+    /**
+     * Called by the tutorial card's Continue button.
+     * Resumes the timer and movement.
+     */
+    function onTutorialCardContinue() {
+        tutorialPhase = 'playing';
+        activeStopPoint = null;
+        timerRunning = true;
+        lastTimeStamp = p.millis();
+    }
+
+    /**
+     * Triggers a stop point: freezes the game for a short beat, then
+     * shows the info card.
+     */
+    function triggerStopPoint(sp) {
+        stopManager.trigger(sp.id);
+        activeStopPoint = sp;
+        tutorialPhase = 'pausing';
+        stopPauseTimer = STOP_PAUSE_MS;
+        timerRunning = false;
+    }
+
+    /**
+     * Called every frame when tutorialPhase === 'pausing'.
+     * Counts down and transitions to 'card' when the pause is over.
+     */
+    function tickTutorialPause(dt) {
+        stopPauseTimer -= dt;
+        if (stopPauseTimer <= 0) {
+            tutorialPhase = 'card';
+        }
     }
 
     // ── World Rendering ───────────────────────────────────────
@@ -732,6 +850,12 @@ new p5((p) => {
         )
             return;
 
+        // ── Tutorial pause-beat countdown ─────────────────────
+        if (isTutorial && tutorialPhase === 'pausing') {
+            tickTutorialPause(Math.min(p.deltaTime, 50));
+            return; // don't process anything else while pausing
+        }
+
         if (pendingGameOver) {
             gameOverDelayTimer -= dt;
             if (player.animState === 'EXTINGUISH') {
@@ -744,7 +868,12 @@ new p5((p) => {
             }
             if (gameOverDelayTimer <= 0) {
                 pendingGameOver = false;
-                currentGameState = GAME_STATE.GAMEOVER;
+                if (isTutorial) {
+                    tutorialPhase = 'gameover';
+                    currentGameState = GAME_STATE.TUTORIAL_GAMEOVER;
+                } else {
+                    currentGameState = GAME_STATE.GAMEOVER;
+                }
                 timerRunning = false;
             }
             return;
@@ -859,6 +988,12 @@ new p5((p) => {
         if (visionEffectTimer <= 0 && visionTransitionAlpha >= 1)
             enableCamera = !debugMode;
 
+        // ── Tutorial stop-point detection ─────────────────────
+        if (isTutorial && tutorialPhase === 'playing') {
+            const sp = stopManager.check(player);
+            if (sp) triggerStopPoint(sp);
+        }
+
         updateTimer();
     }
 
@@ -873,7 +1008,11 @@ new p5((p) => {
     // ── Win / Loss Events ─────────────────────────────────────
 
     function onPlayerDeath() {
-        lossReason = `You succumbed to the traps.\nFinal Score: ${calculateScore(player.hp, timeLeft)}`;
+        if (isTutorial) {
+            lossReason = 'Your torch went dark in the dungeon.';
+        } else {
+            lossReason = `You succumbed to the traps.\nFinal Score: ${calculateScore(player.hp, timeLeft)}`;
+        }
         timerRunning = false;
         pendingGameOver = true;
         gameOverDelayTimer = 12 * 200;
@@ -881,15 +1020,25 @@ new p5((p) => {
 
     function onTimeUp() {
         triggerExtinguishAnim(player);
-        lossReason = `Your torch burned out in the darkness.\nFinal Score: ${calculateScore(player.hp, timeLeft)}`;
+        if (isTutorial) {
+            lossReason =
+                'Your torch burned out before you finished the tutorial.';
+        } else {
+            lossReason = `Your torch burned out in the darkness.\nFinal Score: ${calculateScore(player.hp, timeLeft)}`;
+        }
         timerRunning = false;
         pendingGameOver = true;
         gameOverDelayTimer = 12 * 200 + 400;
     }
 
     function checkExitReached() {
-        if (maze[player.gridY][player.gridX] === TILE_MAP.exit)
-            onLevelComplete();
+        if (maze[player.gridY][player.gridX] === TILE_MAP.exit) {
+            if (isTutorial) {
+                onTutorialComplete();
+            } else {
+                onLevelComplete();
+            }
+        }
     }
 
     function onLevelComplete() {
@@ -905,9 +1054,15 @@ new p5((p) => {
         timerRunning = false;
     }
 
+    function onTutorialComplete() {
+        markTutorialDone();
+        timerRunning = false;
+        isTutorial = false;
+        currentGameState = GAME_STATE.TUTORIAL_CLEARED;
+    }
+
     // ── Screen Routing ────────────────────────────────────────
 
-    /** Open the accounts screen, optionally pre-selecting a tab. */
     function openAccounts(tab = 'create') {
         draftName = '';
         accountTab = tab;
@@ -924,7 +1079,9 @@ new p5((p) => {
                 drawTutorialPrompt(p, {
                     onYes: () => {
                         markTutorialDone();
-                        currentGameState = GAME_STATE.TUTORIAL;
+                        loadTutorial();
+                        currentGameState = GAME_STATE.PLAYING;
+                        p.loop();
                     },
                     onNo: () => {
                         markTutorialDone();
@@ -936,8 +1093,39 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.TUTORIAL:
-                // Placeholder — replace with real tutorial scene.
-                currentGameState = GAME_STATE.LEVEL_SELECT;
+                // Legacy path — immediately redirect to real tutorial
+                loadTutorial();
+                currentGameState = GAME_STATE.PLAYING;
+                p.loop();
+                break;
+
+            case GAME_STATE.TUTORIAL_CLEARED:
+                drawTutorialCleared(p, {
+                    onLevels: () => {
+                        currentGameState = GAME_STATE.LEVEL_SELECT;
+                    },
+                    onMenu: () => {
+                        currentGameState = GAME_STATE.MENU;
+                    },
+                    fonts,
+                    assets,
+                });
+                break;
+
+            case GAME_STATE.TUTORIAL_GAMEOVER:
+                drawTutorialGameOver(p, {
+                    lossReason,
+                    onRetry: () => {
+                        loadTutorial();
+                        currentGameState = GAME_STATE.PLAYING;
+                        p.loop();
+                    },
+                    onMenu: () => {
+                        currentGameState = GAME_STATE.MENU;
+                    },
+                    fonts,
+                    assets,
+                });
                 break;
 
             case GAME_STATE.MENU:
@@ -951,7 +1139,9 @@ new p5((p) => {
                         }
                     },
                     onTutorial: () => {
-                        currentGameState = GAME_STATE.TUTORIAL;
+                        loadTutorial();
+                        currentGameState = GAME_STATE.PLAYING;
+                        p.loop();
                     },
                     onAccounts: () => openAccounts('create'),
                     onLeaderboard: () => {
@@ -967,7 +1157,6 @@ new p5((p) => {
                     draftName,
                     accountTab,
                     accountError,
-                    // Called by the clickable tab buttons in drawAccountScreen
                     onSwitchTab: (tab) => {
                         accountTab = tab;
                         draftName = '';
