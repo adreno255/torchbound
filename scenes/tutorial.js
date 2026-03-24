@@ -299,19 +299,8 @@ export function drawTutorialCleared(p, { onLevels, onMenu, fonts, assets }) {
 
     drawButton(
         p,
-        'LEVELS',
-        p.windowWidth / 2 - 170,
-        p.windowHeight / 2 + 50,
-        onLevels,
-        300,
-        50,
-        fonts,
-        assets,
-    );
-    drawButton(
-        p,
-        'MENU',
-        p.windowWidth / 2 + 170,
+        'BACK TO MENU',
+        p.windowWidth / 2,
         p.windowHeight / 2 + 50,
         onMenu,
         300,

@@ -89,6 +89,7 @@ import {
     playSfx,
     setBgmVolume,
     setSfxVolume,
+    setOnAudioLoaded,
 } from './common/audio.js';
 
 // ============================================================
@@ -416,6 +417,8 @@ new p5((p) => {
         scaleFactor = getScaleFactor(p);
         powerupSheetImg = imgCache['assets/powerups/powerups.png'] || null;
         playerImg = imgCache['assets/player/player-v2.png'] || null;
+
+        setOnAudioLoaded(() => updateBgm());
 
         _loadActiveProfile();
     };

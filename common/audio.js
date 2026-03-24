@@ -69,6 +69,7 @@ let ctx = null; // AudioContext
 let masterBgm = null; // GainNode — BGM master bus
 let masterSfx = null; // GainNode — SFX master bus
 let audioLoaded = false;
+let onLoadedCallback = null;
 
 // BGM playback state
 const bgm = {
@@ -107,11 +108,19 @@ export function initAudio() {
  * resume the AudioContext if the browser suspended it.
  */
 export function resumeAudio() {
-    if (ctx && ctx.state === 'suspended') ctx.resume();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
     if (!audioLoaded) {
         audioLoaded = true;
-        loadAllAudio().then(() => console.log('[audio] All audio loaded'));
+        loadAllAudio().then(() => {
+            console.log('[audio] All audio loaded');
+            if (onLoadedCallback) onLoadedCallback();
+        });
     }
+}
+
+export function setOnAudioLoaded(cb) {
+    onLoadedCallback = cb;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -150,7 +159,6 @@ export async function loadAudio(key, path, type) {
  * @returns {Promise<void>}
  */
 export function loadAllAudio() {
-    initAudio();
     const bgmFiles = [
         ['bgm_menu', 'assets/audio/bgm/bgm_menu.ogg'],
         ['bgm_dungeon_light', 'assets/audio/bgm/bgm_dungeon_light.ogg'],
