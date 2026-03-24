@@ -715,7 +715,7 @@ new p5((p) => {
         e.preventDefault();
     });
 
-    // ── Mouse scroll support ───────────────────────────────
+    // ── Mouse events support ───────────────────────────────
     p.mouseWheel = (event) => {
         if (currentGameState === GAME_STATE.ABOUT) {
             aboutScroll.targetY = Math.max(
@@ -727,6 +727,11 @@ new p5((p) => {
             );
             return false;
         }
+    };
+
+    p.mousePressed = () => {
+        // One-time check to resume audio on the first click
+        resumeAudio();
     };
 
     // ── Screen-effect helpers ─────────────────────────────────
@@ -1033,6 +1038,7 @@ new p5((p) => {
 
         const powerupActive = torchEffectTimer > 0 || visionEffectTimer > 0;
         const isDark = darknessEffectTimer > 0 && !powerupActive;
+        const prevDarknessTimer = darknessEffectTimer;
 
         moveTimer = movePlayer(
             p,
@@ -1069,7 +1075,6 @@ new p5((p) => {
                 resetDelayTimer = FALL_ANIM_MS;
             },
             onDarkness: () => {
-                playSfx('sfx_darkness');
                 if (
                     player.animState !== 'DIM_IDLE' &&
                     player.animState !== 'DIM_WALK' &&
@@ -1083,6 +1088,14 @@ new p5((p) => {
         trapDamageTimer = trapResult.trapDamageTimer;
         darknessEffectTimer = trapResult.darknessEffectTimer;
         torchRadius = trapResult.torchRadius;
+
+        // Fire sfx_darkness only on the frame the darkness effect newly begins
+        // (timer was 0 before the trap check, positive after it).
+        // This prevents the sound repeating every frame the player stands on
+        // an active darkness trap.
+        if (prevDarknessTimer <= 0 && darknessEffectTimer > 0) {
+            playSfx('sfx_darkness');
+        }
 
         if (!isDark && wasDark) {
             if (player.animState === 'DIM_IDLE') setAnim(player, 'IDLE');
