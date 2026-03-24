@@ -8,7 +8,7 @@ import {
     TRAP_DAMAGE_INTERVAL_MS,
     DARKNESS_DURATION,
     GAME_STATE,
-    getFireTrapDamage,
+    getTrapDamage,
     TORCH_RADIUS_BASE,
 } from '../common/constants.js';
 
@@ -103,7 +103,7 @@ export function checkStandingOnTrap(params) {
         case 'damage':
             if (newDamageTimer <= 0) {
                 // Resolve damage amount from the current level
-                const damage = getFireTrapDamage(currentLevel ?? 1);
+                const damage = getTrapDamage(currentLevel ?? 1);
                 onDamage(damage);
                 newDamageTimer = TRAP_DAMAGE_INTERVAL_MS;
             }

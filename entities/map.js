@@ -106,7 +106,7 @@ const TILES = {
 // ── Trap animation config ─────────────────────────────────────────────────
 // Each entry: { row, activeFrames, inactiveFrames, activeMsPerFrame, inactiveMsPerFrame }
 const TRAP_ANIM = {
-    [TILE_MAP.fireTrap]: {
+    [TILE_MAP.damageTrap]: {
         row: 0,
         activeFrames: 8,
         inactiveFrames: 4,
@@ -134,7 +134,7 @@ const TRAP_ANIM = {
  * using the same offset logic as isTrapActive() so the animation frame
  * always starts at 0 at the beginning of each phase for this specific tile.
  *
- * @param {number}  tileId    — TILE_MAP.fireTrap / resetTrap / darknessTrap
+ * @param {number}  tileId    — TILE_MAP.damageTrap / resetTrap / darknessTrap
  * @param {number}  x         — tile grid column (for positional offset)
  * @param {number}  y         — tile grid row    (for positional offset)
  * @param {number}  trapTimer — global ms elapsed (from main.js state)
@@ -473,7 +473,7 @@ export function drawGrid(
                             );
                         } else {
                             const FALLBACK = {
-                                [TILE_MAP.fireTrap]: active
+                                [TILE_MAP.damageTrap]: active
                                     ? [200, 80, 50, 200]
                                     : [80, 40, 30, 130],
                                 [TILE_MAP.resetTrap]: active

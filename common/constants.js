@@ -37,7 +37,7 @@ export const TILE_MAP = {
     wall: 1,
     start: 2,
     exit: 3,
-    fireTrap: 4,
+    damageTrap: 4,
     resetTrap: 5,
     darknessTrap: 6,
     timePowerUp: 7,
@@ -50,7 +50,7 @@ export const TILE_MAP = {
 };
 
 /**
- * Returns the spike/fire trap damage amount for the given level.
+ * Returns the trap damage amount for the given level.
  *   Levels 1–2 →  10 HP
  *   Levels 3–4 →  25 HP
  *   Level  5   →  50 HP
@@ -58,7 +58,7 @@ export const TILE_MAP = {
  * @param {number} level - current level (1–5)
  * @returns {number}
  */
-export function getFireTrapDamage(level) {
+export function getTrapDamage(level) {
     if (level <= 2) return 10;
     if (level <= 4) return 25;
     return 50;
