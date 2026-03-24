@@ -42,36 +42,28 @@ import {
     drawVictory,
     drawGameOver,
     drawLeaderboard,
+    drawTutorialPrompt,
 } from './scenes/menu.js';
 import {
     saveScore,
     getLeaderboard,
     getOverallLeaderboard,
-    getSavedPlayerName,
-    savePlayerName,
-    clearPlayerName,
 } from './common/leaderboard.js';
-
-// ============================================================
-// Level-unlock helpers (persisted in localStorage)
-// ============================================================
-
-const UNLOCK_KEY = 'torchbound_unlocked';
-
-function getMaxUnlockedLevel() {
-    return parseInt(localStorage.getItem(UNLOCK_KEY) || '1', 10);
-}
-
-function unlockLevel(level) {
-    const current = getMaxUnlockedLevel();
-    if (level > current) {
-        localStorage.setItem(UNLOCK_KEY, String(level));
-    }
-}
-
-function isLevelUnlocked(level) {
-    return level <= getMaxUnlockedLevel();
-}
+import {
+    getActiveProfile,
+    getActivePlayerId,
+    createProfile,
+    updateActiveProfile,
+    clearActivePlayer,
+    getMaxUnlockedLevel,
+    unlockLevel,
+    isLevelUnlocked,
+    updatePersonalBest,
+    getPersonalBest,
+    hasDoneTutorial,
+    markTutorialDone,
+    getDisplayName,
+} from './common/playerProfile.js';
 
 // ============================================================
 // Per-level asset mapping
@@ -111,22 +103,18 @@ new p5((p) => {
     let powerupSheetImg = null;
     let playerImg = null;
 
-    // Background tilesets (keyed by 'light' | 'dark' | 'darkv2')
     const bgTilesets = { light: null, dark: null, darkv2: null };
 
-    // UI assets
     let buttonTilesImg = null;
     let lockImg = null;
-    let scrollImg = null; // assets/ui/scroll.png
-    let hudBarImg = null; // assets/ui/hud-bar.png
-    let hudHeartImg = null; // assets/ui/hud-heart.png
-    let hudClockImg = null; // assets/ui/hud-clock.png
+    let scrollImg = null;
+    let hudBarImg = null;
+    let hudHeartImg = null;
+    let hudClockImg = null;
 
-    // Fonts
     let fontHeading = null;
     let fontBody = null;
 
-    // Pre-loaded image cache
     const imgCache = {};
 
     // ── State ────────────────────────────────────────────────
@@ -161,7 +149,19 @@ new p5((p) => {
     let player = createPlayer();
     let moveTimer = 0;
     let levelScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    let playerName = getSavedPlayerName();
+
+    // ── Player profile state ──────────────────────────────────
+    // draftName: the name being typed in the Name Input screen.
+    // It is NOT committed to a profile until Enter is pressed.
+    // Going Back discards it and keeps the existing profile.
+    let draftName = '';
+
+    // Helper: returns the active profile's display name, or null
+    function getActiveDisplayName() {
+        const profile = getActiveProfile();
+        if (!profile) return null;
+        return getDisplayName(profile.username, profile.playerId);
+    }
 
     let trapTimer = 0;
     let trapDamageTimer = 0;
@@ -191,15 +191,6 @@ new p5((p) => {
     const VISION_PAN_MS = 600;
 
     // ── Torch flicker state ───────────────────────────────────
-    // A slow-moving Perlin noise offset drives organic torch flicker.
-    // flickerOffset advances each frame; p.noise(flickerOffset) returns
-    // a smooth 0..1 value that slightly perturbs the torch radius in
-    // paintFog(), giving it a living, breathing flame quality.
-    //
-    // FLICKER_SPEED controls how fast the noise crawls:
-    //   0.0005 = very slow drift (dreamy)
-    //   0.0012 = gentle flicker (default — feels like a torch indoors)
-    //   0.003  = agitated flicker (windy torch)
     let flickerOffset = 0;
     const FLICKER_SPEED = 0.0012;
 
@@ -252,7 +243,6 @@ new p5((p) => {
             );
         }
 
-        // Background tilesets — same files, separate references for the bg system
         bgTilesets.light = p.loadImage('assets/maps/map-light.png', null, () =>
             console.warn('bg map-light missing'),
         );
@@ -265,7 +255,6 @@ new p5((p) => {
             () => console.warn('bg map-dark-v2 missing'),
         );
 
-        // UI assets
         buttonTilesImg = p.loadImage(
             'assets/ui/button-tiles.png',
             () => console.log('Loaded: button-tiles.png'),
@@ -297,7 +286,6 @@ new p5((p) => {
             () => console.warn('Not found: assets/ui/hud-clock.png'),
         );
 
-        // Fonts
         fontHeading = p.loadFont(
             'assets/fonts/alagard.ttf',
             () => console.log('Loaded: alagard.ttf'),
@@ -322,7 +310,6 @@ new p5((p) => {
     };
 
     p.draw = () => {
-        // Reset hover flag at the start of each frame
         _anyButtonHovered = false;
 
         const currentTime = p.millis();
@@ -331,9 +318,6 @@ new p5((p) => {
 
         if (currentGameState === GAME_STATE.PAUSED) dt = 0;
 
-        // ── Advance torch flicker noise ────────────────────────
-        // Only advance when actually playing — no flicker drift in menus or pause.
-        // Cap dt to prevent large jumps after tab switches / focus loss.
         if (
             currentGameState === GAME_STATE.PLAYING &&
             gamePhase === GAME_PHASE.PLAYING
@@ -367,7 +351,6 @@ new p5((p) => {
             drawGameWorld();
             p.pop();
 
-            // ── Red vignette ──────────────────────────────────
             if (hitFlashTimer > 0) {
                 hitFlashTimer -= Math.min(p.deltaTime, 50);
                 const t = Math.max(0, hitFlashTimer / HIT_FLASH_MS);
@@ -448,7 +431,6 @@ new p5((p) => {
             p.pop();
         }
 
-        // ── Cursor update ──────────────────────────────────────
         p.canvas.style.cursor = _anyButtonHovered ? 'pointer' : 'default';
     };
 
@@ -462,14 +444,18 @@ new p5((p) => {
     p.keyPressed = () => {
         if (currentGameState === GAME_STATE.NAME_INPUT) {
             if (p.keyCode === p.ENTER) {
-                if (playerName.trim().length > 0) {
-                    savePlayerName(playerName.trim());
-                    currentGameState = GAME_STATE.LEVEL_SELECT;
+                // Only commit if they actually typed something
+                if (draftName.trim().length > 0) {
+                    createProfile(draftName.trim());
+                    draftName = '';
+                    // After creating a profile, check if tutorial should be prompted
+                    currentGameState = GAME_STATE.TUTORIAL_PROMPT;
                 }
+                // If empty, do nothing (stay on name input)
             } else if (p.keyCode === p.BACKSPACE) {
-                playerName = playerName.slice(0, -1);
-            } else if (p.key.length === 1 && playerName.length < 12) {
-                playerName += p.key;
+                draftName = draftName.slice(0, -1);
+            } else if (p.key.length === 1 && draftName.length < 12) {
+                draftName += p.key;
             }
             return;
         }
@@ -523,7 +509,7 @@ new p5((p) => {
         trapSheetImg = imgCache[assets.traps] || null;
 
         const levelData = LEVELS[difficulty];
-        maze = levelData.maze;
+        maze = levelData.maze.map((row) => row.slice());
         gridRows = maze.length;
         gridColumns = maze[0].length;
         worldWidth = gridColumns * TILE_SIZE;
@@ -563,8 +549,6 @@ new p5((p) => {
         shakeTimer = 0;
         visionTransitionAlpha = 1;
         visionPanDir = 0;
-        // Reset flicker to a random seed so each level starts with
-        // a different phase of the flicker cycle.
         flickerOffset = Math.random() * 1000;
     }
 
@@ -576,7 +560,6 @@ new p5((p) => {
 
         handleGamePhase(safeDt);
 
-        // Screen shake
         if (shakeTimer > 0) {
             shakeTimer -= safeDt;
             const env = Math.max(0, shakeTimer / SHAKE_MS);
@@ -584,7 +567,6 @@ new p5((p) => {
             p.translate(p.random(-mag, mag), p.random(-mag, mag));
         }
 
-        // Vision powerup pan
         if (visionPanDir !== 0) {
             const step = safeDt / VISION_PAN_MS;
             visionTransitionAlpha = p.constrain(
@@ -726,10 +708,6 @@ new p5((p) => {
         trapTimer += dt;
         trapDamageTimer -= dt;
 
-        // isDark must be resolved before movePlayer so the correct
-        // idle/walk vs dim_idle/dim_walk state is selected each frame.
-        // Powerups (torch boost or vision) override darkness visually —
-        // the timer may still be running but the player acts normally.
         const powerupActive = torchEffectTimer > 0 || visionEffectTimer > 0;
         const isDark = darknessEffectTimer > 0 && !powerupActive;
 
@@ -766,8 +744,6 @@ new p5((p) => {
                 resetDelayTimer = FALL_ANIM_MS;
             },
             onDarkness: () => {
-                // Only trigger dim if not already in a dim or locked state.
-                // triggerDimAnim picks DIM_IDLE or DIM_WALK based on current motion.
                 if (
                     player.animState !== 'DIM_IDLE' &&
                     player.animState !== 'DIM_WALK' &&
@@ -782,8 +758,6 @@ new p5((p) => {
         darknessEffectTimer = trapResult.darknessEffectTimer;
         torchRadius = trapResult.torchRadius;
 
-        // Snap back to normal idle/walk when darkness ends OR when a powerup
-        // activates mid-darkness (powerupActive suppresses dim states).
         if (!isDark && wasDark) {
             if (player.animState === 'DIM_IDLE') setAnim(player, 'IDLE');
             if (player.animState === 'DIM_WALK') setAnim(player, 'WALK');
@@ -859,7 +833,9 @@ new p5((p) => {
 
     function onLevelComplete() {
         const score = calculateScore(player.hp, timeLeft);
-        saveScore(currentLevel, playerName, score);
+        const displayName = getActiveDisplayName() ?? 'Anonymous';
+        saveScore(currentLevel, displayName, score);
+        updatePersonalBest(currentLevel, score);
         if (score > levelScores[currentLevel])
             levelScores[currentLevel] = score;
         unlockLevel(currentLevel + 1);
@@ -875,17 +851,47 @@ new p5((p) => {
         const assets = getAssets();
 
         switch (currentGameState) {
+            // ── TUTORIAL_PROMPT: shown after creating a new account ──────
+            case GAME_STATE.TUTORIAL_PROMPT:
+                drawTutorialPrompt(p, {
+                    onYes: () => {
+                        markTutorialDone();
+                        currentGameState = GAME_STATE.TUTORIAL;
+                    },
+                    onNo: () => {
+                        markTutorialDone();
+                        currentGameState = GAME_STATE.LEVEL_SELECT;
+                    },
+                    fonts,
+                    assets,
+                });
+                break;
+
+            // ── TUTORIAL: placeholder — you'll flesh this out later ──────
+            case GAME_STATE.TUTORIAL:
+                // For now, just go to level select.
+                // Replace this block with your tutorial scene.
+                currentGameState = GAME_STATE.LEVEL_SELECT;
+                break;
+
             case GAME_STATE.MENU:
                 drawMainMenu(p, {
-                    playerName,
+                    displayName: getActiveDisplayName(),
                     onPlay: () => {
-                        currentGameState = playerName
-                            ? GAME_STATE.LEVEL_SELECT
-                            : GAME_STATE.NAME_INPUT;
+                        if (!getActiveProfile()) {
+                            // No profile yet — must create one first
+                            draftName = '';
+                            currentGameState = GAME_STATE.NAME_INPUT;
+                        } else {
+                            currentGameState = GAME_STATE.LEVEL_SELECT;
+                        }
+                    },
+                    onTutorial: () => {
+                        currentGameState = GAME_STATE.TUTORIAL;
                     },
                     onChangePlayer: () => {
-                        playerName = '';
-                        clearPlayerName();
+                        // Clear draft — don't pre-fill with current name
+                        draftName = '';
                         currentGameState = GAME_STATE.NAME_INPUT;
                     },
                     onLeaderboard: () => {
@@ -898,8 +904,10 @@ new p5((p) => {
 
             case GAME_STATE.NAME_INPUT:
                 drawNameInput(p, {
-                    playerName,
+                    draftName,
                     onBack: () => {
+                        // Discard draftName — do NOT commit it
+                        draftName = '';
                         currentGameState = GAME_STATE.MENU;
                     },
                     fonts,
@@ -949,7 +957,8 @@ new p5((p) => {
                     victoryMessage,
                     currentLevel,
                     levels: LEVELS,
-                    playerName,
+                    playerDisplayName: getActiveDisplayName() ?? 'Anonymous',
+                    playerCurrentHighScore: getPersonalBest(currentLevel),
                     topScores: getLeaderboard(currentLevel),
                     onContinue: () => {
                         currentGameState = GAME_STATE.LEVEL_SELECT;
@@ -969,7 +978,7 @@ new p5((p) => {
 
             case GAME_STATE.GLOBAL_LEADERBOARD:
                 drawLeaderboard(p, {
-                    playerName,
+                    displayName: getActiveDisplayName() ?? '',
                     leaderboardView,
                     data:
                         leaderboardView === 'overall'

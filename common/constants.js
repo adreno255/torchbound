@@ -16,6 +16,8 @@ export const TORCH_RADIUS_BASE = 2;
 export const GAME_STATE = {
     MENU: 'menu',
     NAME_INPUT: 'name_input',
+    TUTORIAL_PROMPT: 'tutorial_prompt', // First-time prompt: play tutorial?
+    TUTORIAL: 'tutorial', // Tutorial gameplay scene
     LEVEL_SELECT: 'level_select',
     PLAYING: 'playing',
     PAUSED: 'paused',

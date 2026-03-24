@@ -25,7 +25,7 @@ export const LEVELS = {
     },
     4: {
         name: "Corridor of Embers",
-        maze: generateMaze(50, 35, 0.12, 0.03),
+        maze: generateMaze(45, 35, 0.12, 0.03),
         time: 420
     },
     5: {

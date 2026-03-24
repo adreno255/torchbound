@@ -2,25 +2,30 @@
 // leaderboard.js
 // Handles reading and writing scores to localStorage.
 // Keeps a top-10 per level and computes overall cumulative scores.
+//
+// NOTE: Player identity (username, unlocked levels, tutorial state)
+// is now managed by common/playerProfile.js. The leaderboard stores
+// entries by display name (e.g. "gelo#eY2c") so scores are globally
+// distinguishable even with duplicate usernames.
 // ============================================================
 
 const PER_LEVEL_CAP = 10;
 
 /**
  * Saves a score for a player on a given level.
- * Only updates if the new score is a personal best.
+ * Only updates if the new score is a personal best for this display name.
  * Keeps a maximum of 10 entries per level, sorted by score.
  *
  * @param {number} level
- * @param {string} name
+ * @param {string} displayName  - "username#tag" format
  * @param {number} score
  */
-export function saveScore(level, name, score) {
+export function saveScore(level, displayName, score) {
     let leaderboard =
         JSON.parse(localStorage.getItem(`torchbound_lv${level}`)) || [];
 
     let playerEntryIndex = leaderboard.findIndex(
-        (entry) => entry.name.toLowerCase() === name.toLowerCase(),
+        (entry) => entry.name.toLowerCase() === displayName.toLowerCase(),
     );
 
     if (playerEntryIndex !== -1) {
@@ -28,7 +33,7 @@ export function saveScore(level, name, score) {
             leaderboard[playerEntryIndex].score = score;
         }
     } else {
-        leaderboard.push({ name, score });
+        leaderboard.push({ name: displayName, score });
     }
 
     leaderboard.sort((a, b) => b.score - a.score);
@@ -70,30 +75,4 @@ export function getOverallLeaderboard() {
         .map(([name, score]) => ({ name, score }))
         .sort((a, b) => b.score - a.score)
         .slice(0, PER_LEVEL_CAP);
-}
-
-/**
- * Reads and returns the saved username from localStorage.
- * Returns an empty string if no username has been saved.
- *
- * @returns {string}
- */
-export function getSavedPlayerName() {
-    return localStorage.getItem('torchbound_username') || '';
-}
-
-/**
- * Persists a username to localStorage.
- *
- * @param {string} name
- */
-export function savePlayerName(name) {
-    localStorage.setItem('torchbound_username', name);
-}
-
-/**
- * Removes the saved username from localStorage.
- */
-export function clearPlayerName() {
-    localStorage.removeItem('torchbound_username');
 }

@@ -1,7 +1,7 @@
 // ============================================================
 // scenes/menu.js
 // All non-gameplay screens: main menu, name input, level select,
-// victory, game over, and leaderboard.
+// victory, game over, leaderboard, and tutorial prompt.
 // ============================================================
 
 import { drawButton, _drawPixelButtonSlices } from '../common/utils.js';
@@ -10,20 +10,17 @@ import { drawButton, _drawPixelButtonSlices } from '../common/utils.js';
 // Scroll card — 9-slice medieval parchment card
 // ---------------------------------------------------------------------------
 
-// Source cell size in scroll.png (48×48px sheet, 3×3 cells of 16×16px each)
 const SC = 16;
 
 /**
  * Draws a medieval parchment scroll card using 9-slice scaling.
- * The corners stay at SC×SC while the rolls and borders stretch to fill.
- * Exported so Tutorial / About screens can reuse it.
  *
  * @param {object}        p
- * @param {p5.Image|null} scrollImg  - assets/ui/scroll.png (null = plain fallback)
- * @param {number}        cx         - center X
- * @param {number}        cy         - center Y
- * @param {number}        w          - total card width
- * @param {number}        h          - total card height
+ * @param {p5.Image|null} scrollImg
+ * @param {number}        cx
+ * @param {number}        cy
+ * @param {number}        w
+ * @param {number}        h
  */
 export function drawScrollCard(p, scrollImg, cx, cy, w, h) {
     if (!scrollImg) {
@@ -83,16 +80,25 @@ export function drawScrollCard(p, scrollImg, cx, cy, w, h) {
 /**
  * @param {object} p
  * @param {object} params
- * @param {string}   params.playerName
- * @param {function} params.onPlay
- * @param {function} params.onChangePlayer
- * @param {function} params.onLeaderboard
- * @param {object}   [params.fonts]
- * @param {object}   [params.assets]
+ * @param {string|null} params.displayName  - "username#tag" or null if no profile
+ * @param {function}    params.onPlay
+ * @param {function}    params.onTutorial
+ * @param {function}    params.onChangePlayer
+ * @param {function}    params.onLeaderboard
+ * @param {object}      [params.fonts]
+ * @param {object}      [params.assets]
  */
 export function drawMainMenu(
     p,
-    { playerName, onPlay, onChangePlayer, onLeaderboard, fonts, assets },
+    {
+        displayName,
+        onPlay,
+        onTutorial,
+        onChangePlayer,
+        onLeaderboard,
+        fonts,
+        assets,
+    },
 ) {
     p.textAlign(p.CENTER, p.CENTER);
 
@@ -104,21 +110,39 @@ export function drawMainMenu(
     p.fill(255);
     p.text('Torchbound', p.windowWidth / 2, p.windowHeight / 2 - 250);
 
-    if (fonts?.body) p.textFont(fonts.body);
-    p.textSize(20);
-    p.fill(200);
-    p.text(
-        `Logged in as: ${playerName || 'Guest'}`,
-        p.windowWidth / 2,
-        p.windowHeight / 2 - 10,
-    );
+    // Only show "Logged in as:" if a player profile exists
+    if (displayName) {
+        if (fonts?.body) p.textFont(fonts.body);
+        p.textSize(20);
+        p.fill(200);
+        p.text(
+            `Logged in as: ${displayName}`,
+            p.windowWidth / 2,
+            p.windowHeight / 2 - 10,
+        );
+    }
+
+    const firstBtnY = displayName
+        ? p.windowHeight / 2 + 50
+        : p.windowHeight / 2 + 30;
 
     drawButton(
         p,
         'PLAY',
         p.windowWidth / 2,
-        p.windowHeight / 2 + 50,
+        firstBtnY,
         onPlay,
+        300,
+        50,
+        fonts,
+        assets,
+    );
+    drawButton(
+        p,
+        'TUTORIAL',
+        p.windowWidth / 2,
+        firstBtnY + 70,
+        onTutorial,
         300,
         50,
         fonts,
@@ -128,7 +152,7 @@ export function drawMainMenu(
         p,
         'CHANGE PLAYER',
         p.windowWidth / 2,
-        p.windowHeight / 2 + 120,
+        firstBtnY + 140,
         onChangePlayer,
         300,
         50,
@@ -139,7 +163,7 @@ export function drawMainMenu(
         p,
         'LEADERBOARDS',
         p.windowWidth / 2,
-        p.windowHeight / 2 + 190,
+        firstBtnY + 210,
         onLeaderboard,
         300,
         50,
@@ -155,12 +179,12 @@ export function drawMainMenu(
 /**
  * @param {object} p
  * @param {object} params
- * @param {string}   params.playerName
- * @param {function} params.onBack
+ * @param {string}   params.draftName    - the in-progress typed name (not yet committed)
+ * @param {function} params.onBack       - called without committing the name
  * @param {object}   [params.fonts]
  * @param {object}   [params.assets]
  */
-export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
+export function drawNameInput(p, { draftName, onBack, fonts, assets }) {
     p.textAlign(p.CENTER, p.CENTER);
 
     if (fonts?.heading) p.textFont(fonts.heading);
@@ -173,7 +197,7 @@ export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
     p.textSize(48);
     p.fill(255, 255, 0);
     p.text(
-        playerName + (p.frameCount % 30 < 15 ? '_' : ''),
+        draftName + (p.frameCount % 30 < 15 ? '_' : ''),
         p.windowWidth / 2,
         p.windowHeight / 2,
     );
@@ -185,6 +209,13 @@ export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
         'Type your name and press ENTER to continue',
         p.windowWidth / 2,
         p.windowHeight / 2 + 80,
+    );
+    p.textSize(15);
+    p.fill(100);
+    p.text(
+        'Pressing Back will keep your current account',
+        p.windowWidth / 2,
+        p.windowHeight / 2 + 110,
     );
 
     drawButton(
@@ -201,14 +232,86 @@ export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
 }
 
 // ---------------------------------------------------------------------------
+// Tutorial Prompt  (first-time play prompt)
+// ---------------------------------------------------------------------------
+
+/**
+ * Draws the "Would you like to play the tutorial?" modal over a darkened screen.
+ *
+ * @param {object} p
+ * @param {object} params
+ * @param {function} params.onYes      - play tutorial
+ * @param {function} params.onNo       - skip tutorial, go to level select
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]
+ */
+export function drawTutorialPrompt(p, { onYes, onNo, fonts, assets }) {
+    // Dark overlay
+    p.push();
+    p.fill(0, 200);
+    p.noStroke();
+    p.rectMode(p.CORNER);
+    p.rect(0, 0, p.windowWidth, p.windowHeight);
+    p.pop();
+
+    const cx = p.windowWidth / 2;
+    const cy = p.windowHeight / 2;
+
+    // Card background
+    const cardW = 520;
+    const cardH = 280;
+    p.push();
+    p.fill(28, 18, 10, 240);
+    p.stroke(120, 80, 30);
+    p.strokeWeight(2);
+    p.rectMode(p.CENTER);
+    p.rect(cx, cy, cardW, cardH, 8);
+    p.pop();
+
+    // Torch icon accent line
+    p.push();
+    p.stroke(200, 140, 40, 160);
+    p.strokeWeight(1);
+    p.line(cx - 160, cy - 50, cx + 160, cy - 50);
+    p.line(cx - 160, cy + 50, cx + 160, cy + 50);
+    p.pop();
+
+    p.textAlign(p.CENTER, p.CENTER);
+
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(36);
+    p.fill(80);
+    p.text('First Time?', cx, cy - 90);
+    p.fill(255, 220, 140);
+    p.text('First Time?', cx, cy - 93);
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(20);
+    p.fill(200, 185, 155);
+    p.text('Would you like to play the Tutorial first?', cx, cy - 20);
+    p.textSize(15);
+    p.fill(130, 115, 90);
+    p.text('You can always replay it from the Main Menu.', cx, cy + 12);
+
+    drawButton(
+        p,
+        'YES, TEACH ME',
+        cx - 110,
+        cy + 80,
+        onYes,
+        200,
+        48,
+        fonts,
+        assets,
+    );
+    drawButton(p, 'NO THANKS', cx + 110, cy + 80, onNo, 200, 48, fonts, assets);
+}
+
+// ---------------------------------------------------------------------------
 // Level Select
 // ---------------------------------------------------------------------------
 
 /**
- * Draws the level selection screen.
- * Unlocked levels use the full pixel button.
- * Locked levels show a dimmed pixel button with the dungeon lock sprite.
- *
  * @param {object} p
  * @param {object} params
  * @param {object}   params.levels
@@ -216,7 +319,7 @@ export function drawNameInput(p, { playerName, onBack, fonts, assets }) {
  * @param {function} params.onSelect
  * @param {function} params.onBack
  * @param {object}   [params.fonts]
- * @param {object}   [params.assets]  - { buttonTiles, lockImg }
+ * @param {object}   [params.assets]
  */
 export function drawLevelSelect(
     p,
@@ -282,7 +385,6 @@ export function drawLevelSelect(
 
 /**
  * Draws a non-interactive locked-level button.
- * Renders the pixel button art with a dim tint, plus the lock sprite.
  */
 function drawLockedButton(
     p,
@@ -301,7 +403,6 @@ function drawLockedButton(
 
     p.push();
 
-    // 1. Draw Button Background
     if (img) {
         p.tint(80, 50, 80, 180);
         _drawPixelButtonSlices(p, img, cx, cy, btnW, btnH, false);
@@ -312,18 +413,15 @@ function drawLockedButton(
         p.rect(cx, cy, btnW, btnH, 5);
     }
 
-    // 2. Setup Font for measurement
     if (fonts?.body) p.textFont(fonts.body);
     p.textSize(18);
 
-    // 3. Calculate Centering Offset
     const lockSize = btnH * 0.7;
     const spacing = 10;
     const textW = p.textWidth(label);
     const totalContentWidth = lockSize + spacing + textW;
     const startX = cx - totalContentWidth / 2;
 
-    // 4. Draw Lock Icon
     p.imageMode(p.CENTER);
     const lockCenterX = startX + lockSize / 2;
 
@@ -334,7 +432,6 @@ function drawLockedButton(
         p.text('🔒', lockCenterX, cy);
     }
 
-    // 5. Draw Level Label
     p.fill(120, 90, 140);
     p.textAlign(p.LEFT, p.CENTER);
     p.text(label, startX + lockSize + spacing, cy);
@@ -352,13 +449,14 @@ function drawLockedButton(
  * @param {string}   params.victoryMessage
  * @param {number}   params.currentLevel
  * @param {object}   params.levels
- * @param {string}   params.playerName
- * @param {Array}    params.topScores      - full list; up to top 5 shown
+ * @param {string}   params.playerDisplayName          - "username#tag"
+ * @param {string}   params.playerCurrentHighScore     - player's current high score in the level
+ * @param {Array}    params.topScores
  * @param {function} params.onContinue
  * @param {function} params.onRetry
  * @param {function} params.onMenu
  * @param {object}   [params.fonts]
- * @param {object}   [params.assets]       - { buttonTiles, lockImg, scrollImg }
+ * @param {object}   [params.assets]
  */
 export function drawVictory(
     p,
@@ -366,7 +464,8 @@ export function drawVictory(
         victoryMessage,
         currentLevel,
         levels,
-        playerName,
+        playerDisplayName,
+        playerCurrentHighScore,
         topScores,
         onContinue,
         onRetry,
@@ -375,7 +474,6 @@ export function drawVictory(
         assets,
     },
 ) {
-    // Cap display at 5 — no pagination
     const displayScores = topScores.slice(0, 5);
 
     p.textAlign(p.CENTER, p.CENTER);
@@ -389,13 +487,15 @@ export function drawVictory(
 
     p.textSize(28);
     p.text(victoryMessage, p.windowWidth / 2, p.windowHeight / 2 - 200);
+    p.text(
+        `Current High Score: ${playerCurrentHighScore}`,
+        p.windowWidth / 2,
+        p.windowHeight / 2 - 170,
+    );
 
-    // ── Scroll card ───────────────────────────────────────
-    // Wraps the "Top Survivors" heading (windowHeight/2-120) through to
-    // the last entry row. Each entry is 35px apart; 5 entries span 4 gaps.
     const entryCount = displayScores.length;
-    const listHeadY = p.windowHeight / 2 - 120; // heading center
-    const listBotY = p.windowHeight / 2 - 70 + Math.max(0, entryCount - 1) * 35;
+    const listHeadY = p.windowHeight / 2 - 80;
+    const listBotY = p.windowHeight / 2 - 30 + Math.max(0, entryCount - 1) * 35;
     const cardPadV = 50;
     const cardW = 500;
     const cardCY = (listHeadY + listBotY) / 2;
@@ -410,24 +510,20 @@ export function drawVictory(
         cardH,
     );
 
-    // ── Content drawn on top of scroll ───────────────────
-    // Heading
     if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(28);
     p.fill(65, 35, 10);
     p.text(
         `Top Survivors - ${levels[currentLevel].name}`,
         p.windowWidth / 2,
-        p.windowHeight / 2 - 120,
+        p.windowHeight / 2 - 80,
     );
 
-    // Entries
     if (fonts?.body) p.textFont(fonts.body);
     p.textSize(24);
     displayScores.forEach((entry, i) => {
-        const yPos = p.windowHeight / 2 - 70 + i * 35;
-        const isCurrentPlayer = entry.name === playerName;
-        // Alternating row tint
+        const yPos = p.windowHeight / 2 - 30 + i * 35;
+        const isCurrentPlayer = entry.name === playerDisplayName;
         if (i % 2 === 1) {
             p.push();
             p.fill(190, 148, 78, 55);
@@ -451,7 +547,7 @@ export function drawVictory(
         p,
         'CONTINUE',
         p.windowWidth / 2 - 325,
-        p.windowHeight / 2 + 200,
+        p.windowHeight / 2 + 240,
         onContinue,
         300,
         50,
@@ -462,7 +558,7 @@ export function drawVictory(
         p,
         'RETRY',
         p.windowWidth / 2,
-        p.windowHeight / 2 + 200,
+        p.windowHeight / 2 + 240,
         onRetry,
         300,
         50,
@@ -473,7 +569,7 @@ export function drawVictory(
         p,
         'MENU',
         p.windowWidth / 2 + 325,
-        p.windowHeight / 2 + 200,
+        p.windowHeight / 2 + 240,
         onMenu,
         300,
         50,
@@ -550,23 +646,23 @@ export function drawGameOver(
 }
 
 // ---------------------------------------------------------------------------
-// Leaderboard  (Hall of Fame) — top 10, no pagination
+// Leaderboard  (Hall of Fame)
 // ---------------------------------------------------------------------------
 
 /**
  * @param {object} p
  * @param {object} params
- * @param {string}        params.playerName
+ * @param {string}        params.displayName      - "username#tag"
  * @param {string|number} params.leaderboardView
- * @param {Array}         params.data            - up to top 10
+ * @param {Array}         params.data
  * @param {function}      params.onViewChange
  * @param {function}      params.onBack
  * @param {object}        [params.fonts]
- * @param {object}        [params.assets]        - { buttonTiles, lockImg, scrollImg }
+ * @param {object}        [params.assets]
  */
 export function drawLeaderboard(
     p,
-    { playerName, leaderboardView, data, onViewChange, onBack, fonts, assets },
+    { displayName, leaderboardView, data, onViewChange, onBack, fonts, assets },
 ) {
     p.textAlign(p.CENTER, p.CENTER);
 
@@ -598,11 +694,8 @@ export function drawLeaderboard(
         );
     });
 
-    // ── Scroll card ───────────────────────────────────────
-    // Wraps the subheading (y=300) through the last entry.
-    // Entries start at y=340, each 40px apart, up to 10 entries.
     const entryCount = data.length;
-    const listHeadY = 300; // subheading center y
+    const listHeadY = 300;
     const listBotY = entryCount > 0 ? 340 + (entryCount - 1) * 40 : 340;
     const cardPadV = 50;
     const cardW = 600;
@@ -618,8 +711,6 @@ export function drawLeaderboard(
         cardH,
     );
 
-    // ── Content drawn on top of scroll ───────────────────
-    // Subheading
     if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(24);
     p.fill(65, 35, 10);
@@ -631,7 +722,6 @@ export function drawLeaderboard(
         300,
     );
 
-    // Entries
     if (fonts?.body) p.textFont(fonts.body);
     p.textSize(24);
 
@@ -642,7 +732,6 @@ export function drawLeaderboard(
 
     data.forEach((entry, i) => {
         const yPos = 340 + i * 40;
-        // Alternating row tint
         if (i % 2 === 1) {
             p.push();
             p.fill(190, 148, 78, 55);
@@ -651,7 +740,7 @@ export function drawLeaderboard(
             p.rect(p.windowWidth / 2, yPos, cardW - SC * 2, 40);
             p.pop();
         }
-        p.fill(entry.name === playerName ? [160, 90, 10] : [55, 28, 8]);
+        p.fill(entry.name === displayName ? [160, 90, 10] : [55, 28, 8]);
         if (fonts?.body) p.textFont(fonts.body);
         p.textSize(24);
         p.textAlign(p.CENTER, p.CENTER);
