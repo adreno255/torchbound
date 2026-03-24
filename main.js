@@ -390,9 +390,9 @@ new p5((p) => {
             () => console.warn('Not found: assets/ui/copy-icon.png'),
         );
         developerImg = p.loadImage(
-            'assets/ui/developer_image.jpg',
-            () => console.log('Loaded: developer_image.jpg'),
-            () => console.warn('Not found: assets/ui/developer_image.jpg'),
+            'assets/ui/developer_image.JPG',
+            () => console.log('Loaded: developer_image.JPG'),
+            () => console.warn('Not found: assets/ui/developer_image.JPG'),
         );
 
         fontHeading = p.loadFont(
@@ -688,15 +688,15 @@ new p5((p) => {
             }
         }
 
-        if (p.key === '0') debugMode = !debugMode;
+        // if (p.key === '0') debugMode = !debugMode;
 
-        if (debugMode) {
-            if (p.key === '1') loadLevel(1);
-            if (p.key === '2') loadLevel(2);
-            if (p.key === '3') loadLevel(3);
-            if (p.key === 'm' || p.key === 'M') enableCamera = !enableCamera;
-            if (p.key === 'f' || p.key === 'F') enableFog = !enableFog;
-        }
+        // if (debugMode) {
+        //     if (p.key === '1') loadLevel(1);
+        //     if (p.key === '2') loadLevel(2);
+        //     if (p.key === '3') loadLevel(3);
+        //     if (p.key === 'm' || p.key === 'M') enableCamera = !enableCamera;
+        //     if (p.key === 'f' || p.key === 'F') enableFog = !enableFog;
+        // }
     };
 
     // ── Clipboard paste support ───────────────────────────────
