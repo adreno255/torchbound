@@ -78,6 +78,7 @@ import {
     getDisplayName,
     readProfileById,
     setActivePlayerId,
+    _loadActiveProfile,
 } from './common/playerProfile.js';
 import {
     initAudio,
@@ -188,6 +189,8 @@ new p5((p) => {
     let victoryMessage = '';
     let lossReason = '';
     let leaderboardView = 'overall';
+    let leaderboardData = [];
+    let victoryTopScores = [];
 
     let player = createPlayer();
     let moveTimer = 0;
@@ -213,6 +216,7 @@ new p5((p) => {
     let visionEffectTimer = 0;
     let timeBonusTextTimer = 0;
 
+    let pendingVictory = false;
     let pendingReset = false;
     let resetDelayTimer = 0;
     const FALL_ANIM_MS = 5 * 160;
@@ -288,19 +292,15 @@ new p5((p) => {
         switch (currentGameState) {
             case GAME_STATE.PLAYING:
             case GAME_STATE.PAUSED: {
-                // During the last 30 seconds switch to the urgent track
-                if (last30Active) {
+                if (isTutorial) {
+                    playBgm('bgm_dungeon_light');
+                } else if (last30Active) {
                     playBgm('bgm_last30');
                 } else {
                     playBgm(bgmKeyForLevel(currentLevel));
                 }
                 break;
             }
-
-            // Tutorial shares the same dungeon-light track
-            case GAME_STATE.TUTORIAL:
-                playBgm('bgm_dungeon_light');
-                break;
 
             // All menu-like screens share the menu BGM
             case GAME_STATE.MENU:
@@ -425,6 +425,8 @@ new p5((p) => {
             // Start menu BGM once assets are ready
             updateBgm();
         });
+
+        _loadActiveProfile();
     };
 
     p.draw = () => {
@@ -616,26 +618,34 @@ new p5((p) => {
             if (p.keyCode === p.ENTER) {
                 if (accountTab === 'create') {
                     if (draftName.trim().length > 0) {
-                        createProfile(draftName.trim());
+                        const name = draftName.trim();
                         draftName = '';
-                        accountError = '';
-                        currentGameState = GAME_STATE.TUTORIAL_PROMPT;
-                        updateBgm();
+                        accountError = 'Creating account…';
+                        (async () => {
+                            await createProfile(name);
+                            accountError = '';
+                            currentGameState = GAME_STATE.TUTORIAL_PROMPT;
+                            updateBgm();
+                        })();
                     }
                 } else {
                     const trimmed = draftName.trim();
                     if (trimmed.length > 0) {
-                        const found = readProfileById(trimmed);
-                        if (found) {
-                            setActivePlayerId(found.playerId);
-                            draftName = '';
-                            accountError = '';
-                            currentGameState = GAME_STATE.MENU;
-                            updateBgm();
-                        } else {
-                            accountError =
-                                'No account found with that Player ID.';
-                        }
+                        accountError = 'Looking up account…';
+                        (async () => {
+                            const found = await readProfileById(trimmed);
+                            if (found) {
+                                setActivePlayerId(found.playerId);
+                                await _loadActiveProfile();
+                                draftName = '';
+                                accountError = '';
+                                currentGameState = GAME_STATE.MENU;
+                                updateBgm();
+                            } else {
+                                accountError =
+                                    'No account found with that Player ID.';
+                            }
+                        })();
                     }
                 }
             } else if (p.keyCode === p.BACKSPACE) {
@@ -643,7 +653,14 @@ new p5((p) => {
                 accountError = '';
                 playSfx('sfx_keypress');
             } else if (p.key.length === 1) {
-                if (!p.keyIsDown(p.CONTROL) && !p.keyIsDown(p.META)) {
+                // 17 is Control, 91 and 93 are Meta/Command (Mac), 18 is Alt/Option
+                const isModifierDown =
+                    p.keyIsDown(17) ||
+                    p.keyIsDown(91) ||
+                    p.keyIsDown(93) ||
+                    p.keyIsDown(18);
+
+                if (!isModifierDown) {
                     const maxLen = accountTab === 'create' ? 12 : 24;
                     const allowed = isAllowedNameChar(p.key);
                     if (allowed && draftName.length < maxLen) {
@@ -830,6 +847,7 @@ new p5((p) => {
         timeBonusTextTimer = 0;
         pendingReset = false;
         resetDelayTimer = 0;
+        pendingVictory = false;
         pendingGameOver = false;
         gameOverDelayTimer = 0;
         wasDark = false;
@@ -1206,17 +1224,21 @@ new p5((p) => {
         if (maze[player.gridY][player.gridX] === TILE_MAP.exit) {
             if (isTutorial) {
                 onTutorialComplete();
-            } else {
+            } else if (!pendingVictory) {
+                pendingVictory = true;
                 onLevelComplete();
             }
         }
     }
 
-    function onLevelComplete() {
+    async function onLevelComplete() {
         const score = calculateScore(player.hp, timeLeft);
         const displayName = getActiveDisplayName() ?? 'Anonymous';
-        saveScore(currentLevel, displayName, score);
-        updatePersonalBest(currentLevel, score);
+
+        // Wait for the write to finish before fetching — guarantees new score is included
+        await saveScore(currentLevel, displayName, score, getActivePlayerId());
+        await updatePersonalBest(currentLevel, score);
+
         if (score > levelScores[currentLevel])
             levelScores[currentLevel] = score;
         unlockLevel(currentLevel + 1);
@@ -1225,6 +1247,9 @@ new p5((p) => {
         timerRunning = false;
         playSfx('sfx_victory');
         updateBgm();
+
+        // Now safe to fetch — the new score is already in the DB
+        victoryTopScores = await getLeaderboard(currentLevel);
     }
 
     function onTutorialComplete() {
@@ -1244,6 +1269,15 @@ new p5((p) => {
         accountError = '';
         currentGameState = GAME_STATE.ACCOUNTS;
         updateBgm();
+    }
+
+    // ── Score Fetching Helper ────────────────────────────────────────
+    async function fetchLeaderboardData() {
+        if (leaderboardView === 'overall') {
+            leaderboardData = await getOverallLeaderboard();
+        } else {
+            leaderboardData = await getLeaderboard(leaderboardView);
+        }
     }
 
     function drawScreen() {
@@ -1330,6 +1364,8 @@ new p5((p) => {
                     },
                     onAccounts: () => openAccounts('create'),
                     onLeaderboard: () => {
+                        leaderboardView = 'overall';
+                        fetchLeaderboardData();
                         currentGameState = GAME_STATE.GLOBAL_LEADERBOARD;
                         updateBgm();
                     },
@@ -1414,12 +1450,14 @@ new p5((p) => {
                     levels: LEVELS,
                     playerDisplayName: getActiveDisplayName() ?? 'Anonymous',
                     playerCurrentHighScore: getPersonalBest(currentLevel),
-                    topScores: getLeaderboard(currentLevel),
+                    topScores: victoryTopScores,
                     onContinue: () => {
                         const lastLevel = Math.max(
                             ...Object.keys(LEVELS).map(Number),
                         );
                         if (currentLevel === lastLevel) {
+                            leaderboardView = 'overall';
+                            fetchLeaderboardData();
                             currentGameState = GAME_STATE.GLOBAL_LEADERBOARD;
                         } else {
                             currentGameState = GAME_STATE.LEVEL_SELECT;
@@ -1445,12 +1483,10 @@ new p5((p) => {
                 drawLeaderboard(p, {
                     displayName: getActiveDisplayName() ?? '',
                     leaderboardView,
-                    data:
-                        leaderboardView === 'overall'
-                            ? getOverallLeaderboard()
-                            : getLeaderboard(leaderboardView),
+                    data: leaderboardData,
                     onViewChange: (v) => {
                         leaderboardView = v;
+                        fetchLeaderboardData();
                     },
                     onBack: () => {
                         currentGameState = GAME_STATE.MENU;

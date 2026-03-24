@@ -1,25 +1,25 @@
 // ============================================================
 // playerProfile.js
-// Unified per-player profile stored in localStorage.
+// Unified per-player profile — now backed by Supabase.
 //
-// Each player has their own keyed entry:
-//   torchbound_player_{playerId}  →  PlayerProfile object
+// Public API is identical to the localStorage version so main.js
+// needs zero changes.  All heavy async ops are fire-and-forget or
+// awaited inside async wrappers; p.draw() only reads the in-memory
+// cache that is kept in sync automatically.
 //
-// The "active" player is tracked separately:
-//   torchbound_active_player  →  playerId string
-//
-// PlayerProfile shape:
-// {
-//   playerId:      string,   — cuid2-style 24-char unique ID
-//   username:      string,   — display name (duplicates allowed)
-//   unlockedLevel: number,   — highest level unlocked (1–5)
-//   highScores:    { 1:number, 2:number, 3:number, 4:number, 5:number },
-//   tutorialDone:  boolean,  — true if tutorial was seen or skipped
-// }
+// localStorage is still used for ONE thing only:
+//   torchbound_active_player → the active player's ID string
+// This lets the game remember who was logged in across sessions
+// without an extra DB round-trip on startup.
 // ============================================================
 
+import { db } from './supabase.js';
+
 const ACTIVE_KEY = 'torchbound_active_player';
-const PROFILE_PREFIX = 'torchbound_player_';
+
+// ── In-memory cache ───────────────────────────────────────────────────────
+// Populated by _loadActiveProfile() on startup and after any write.
+let _cachedProfile = null;
 
 // ── ID generation ─────────────────────────────────────────────────────────
 
@@ -36,21 +36,12 @@ export function generatePlayerId() {
     const arr = new Uint8Array(24);
     crypto.getRandomValues(arr);
     let id = startChars[arr[0] % startChars.length];
-    for (let i = 1; i < 24; i++) {
-        id += chars[arr[i] % chars.length];
-    }
+    for (let i = 1; i < 24; i++) id += chars[arr[i] % chars.length];
     return id;
 }
 
-// ── Profile tag helper ────────────────────────────────────────────────────
+// ── Tag / display name helpers ────────────────────────────────────────────
 
-/**
- * Returns the 4-character tag derived from a player's ID.
- * e.g. playerId "eY2cXfGh..." → "eY2c"
- *
- * @param {string} playerId
- * @returns {string}
- */
 export function getPlayerTag(playerId) {
     return playerId ? playerId.slice(0, 4) : '????';
 }
@@ -67,52 +58,29 @@ export function getDisplayName(username, playerId) {
     return `${username} #${getPlayerTag(playerId)}`;
 }
 
-// ── Default profile factory ───────────────────────────────────────────────
+// ── DB row ↔ profile object conversion ───────────────────────────────────
 
-function defaultProfile(playerId, username) {
+function rowToProfile(row) {
     return {
-        playerId,
-        username,
-        unlockedLevel: 1,
-        highScores: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-        tutorialDone: false,
+        playerId: row.player_id,
+        username: row.username,
+        unlockedLevel: row.unlocked_level,
+        highScores: row.high_scores,
+        tutorialDone: row.tutorial_done,
     };
 }
 
-// ── Storage helpers ───────────────────────────────────────────────────────
-
-function profileKey(playerId) {
-    return PROFILE_PREFIX + playerId;
+function profileToRow(profile) {
+    return {
+        player_id: profile.playerId,
+        username: profile.username,
+        unlocked_level: profile.unlockedLevel,
+        high_scores: profile.highScores,
+        tutorial_done: profile.tutorialDone,
+    };
 }
 
-function readProfile(playerId) {
-    try {
-        const raw = localStorage.getItem(profileKey(playerId));
-        return raw ? JSON.parse(raw) : null;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Looks up a profile directly by its playerId string.
- * Returns null if no matching profile exists in localStorage.
- *
- * Used by the "Switch Account" flow where the user pastes their Player ID.
- *
- * @param {string} playerId
- * @returns {object|null} PlayerProfile
- */
-export function readProfileById(playerId) {
-    if (!playerId) return null;
-    return readProfile(playerId.trim());
-}
-
-function writeProfile(profile) {
-    localStorage.setItem(profileKey(profile.playerId), JSON.stringify(profile));
-}
-
-// ── Active player ─────────────────────────────────────────────────────────
+// ── Active player (localStorage) ─────────────────────────────────────────
 
 /**
  * Returns the active player's ID, or null if none is set.
@@ -135,45 +103,95 @@ export function setActivePlayerId(playerId) {
  */
 export function clearActivePlayer() {
     localStorage.removeItem(ACTIVE_KEY);
+    _cachedProfile = null;
+}
+
+// ── DB read helpers ───────────────────────────────────────────────────────
+
+async function _fetchProfile(playerId) {
+    if (!playerId) return null;
+    const { data, error } = await db
+        .from('profiles')
+        .select('*')
+        .eq('player_id', playerId)
+        .maybeSingle();
+    if (error || !data) return null;
+    return rowToProfile(data);
+}
+
+/**
+ * Loads the active profile from Supabase and populates the cache.
+ * Called once on startup (from main.js) and after any write.
+ */
+export async function _loadActiveProfile() {
+    const id = getActivePlayerId();
+    _cachedProfile = await _fetchProfile(id);
+}
+
+// ── Synchronous cache reads (used by p.draw()) ────────────────────────────
+
+export function getActiveProfile() {
+    return _cachedProfile;
 }
 
 // ── Profile CRUD ──────────────────────────────────────────────────────────
 
 /**
- * Creates a new player profile, saves it, and sets them as active.
- * Returns the created profile.
- *
- * @param {string} username
- * @returns {object} PlayerProfile
+ * Creates a new profile in Supabase and sets it as active.
+ * Returns the created profile (synchronously via the local object —
+ * the DB write happens async in the background).
  */
-export function createProfile(username) {
+export async function createProfile(username) {
     const playerId = generatePlayerId();
-    const profile = defaultProfile(playerId, username);
-    writeProfile(profile);
+    const profile = {
+        playerId,
+        username,
+        unlockedLevel: 1,
+        highScores: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+        tutorialDone: false,
+    };
+
+    const { error } = await db.from('profiles').insert(profileToRow(profile));
+    if (error) console.error('[profile] createProfile error:', error.message);
+
     setActivePlayerId(playerId);
+    _cachedProfile = profile;
     return profile;
 }
 
 /**
- * Returns the currently active player's profile, or null if no active player.
- * @returns {object|null} PlayerProfile
+ * Looks up a profile directly by its player ID.
+ * Used by the "Switch Account" flow.
  */
-export function getActiveProfile() {
-    const id = getActivePlayerId();
-    if (!id) return null;
-    return readProfile(id);
+export async function readProfileById(playerId) {
+    return _fetchProfile(playerId);
 }
 
 /**
- * Updates fields on the active player's profile.
- * Merges the given partial object into the stored profile.
- *
- * @param {Partial<PlayerProfile>} updates
+ * Returns the active player's profile from the in-memory cache.
+ * Call _loadActiveProfile() on startup to populate it.
  */
-export function updateActiveProfile(updates) {
-    const profile = getActiveProfile();
+export function getActiveProfileSync() {
+    return _cachedProfile;
+}
+
+/**
+ * Merges partial updates into the active profile and persists to Supabase.
+ */
+export async function updateActiveProfile(updates) {
+    const profile = _cachedProfile;
     if (!profile) return;
-    writeProfile({ ...profile, ...updates });
+
+    const merged = { ...profile, ...updates };
+    _cachedProfile = merged;
+
+    const { error } = await db
+        .from('profiles')
+        .update(profileToRow(merged))
+        .eq('player_id', merged.playerId);
+
+    if (error)
+        console.error('[profile] updateActiveProfile error:', error.message);
 }
 
 // ── Convenience helpers ───────────────────────────────────────────────────
@@ -185,20 +203,14 @@ export function updateActiveProfile(updates) {
  * @returns {number}
  */
 export function getMaxUnlockedLevel() {
-    const profile = getActiveProfile();
-    return profile ? profile.unlockedLevel : 1;
+    return _cachedProfile ? _cachedProfile.unlockedLevel : 1;
 }
 
-/**
- * Unlocks a level for the active player if it is higher than current.
- *
- * @param {number} level
- */
-export function unlockLevel(level) {
-    const profile = getActiveProfile();
+export async function unlockLevel(level) {
+    const profile = _cachedProfile;
     if (!profile) return;
     if (level > profile.unlockedLevel) {
-        updateActiveProfile({ unlockedLevel: level });
+        await updateActiveProfile({ unlockedLevel: level });
     }
 }
 
@@ -220,22 +232,15 @@ export function isLevelUnlocked(level) {
  * @returns {number}
  */
 export function getPersonalBest(level) {
-    const profile = getActiveProfile();
-    return profile ? (profile.highScores[level] ?? 0) : 0;
+    return _cachedProfile ? (_cachedProfile.highScores[level] ?? 0) : 0;
 }
 
-/**
- * Updates the personal best for a level if the new score is higher.
- *
- * @param {number} level
- * @param {number} score
- */
-export function updatePersonalBest(level, score) {
-    const profile = getActiveProfile();
+export async function updatePersonalBest(level, score) {
+    const profile = _cachedProfile;
     if (!profile) return;
     const current = profile.highScores[level] ?? 0;
     if (score > current) {
-        updateActiveProfile({
+        await updateActiveProfile({
             highScores: { ...profile.highScores, [level]: score },
         });
     }
@@ -248,13 +253,9 @@ export function updatePersonalBest(level, score) {
  * @returns {boolean}
  */
 export function hasDoneTutorial() {
-    const profile = getActiveProfile();
-    return profile ? profile.tutorialDone : true;
+    return _cachedProfile ? _cachedProfile.tutorialDone : true;
 }
 
-/**
- * Marks the tutorial as done for the active player.
- */
-export function markTutorialDone() {
-    updateActiveProfile({ tutorialDone: true });
+export async function markTutorialDone() {
+    await updateActiveProfile({ tutorialDone: true });
 }

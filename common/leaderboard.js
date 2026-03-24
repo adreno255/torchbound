@@ -1,74 +1,99 @@
 // ============================================================
 // leaderboard.js
-// Handles reading and writing scores to localStorage.
-// Keeps a top-10 per level and computes overall cumulative scores.
+// Leaderboard reads and writes — now backed by Supabase.
 //
-// NOTE: Player identity (username, unlocked levels, tutorial state)
-// is now managed by common/playerProfile.js. The leaderboard stores
-// entries by display name (e.g. "gelo#eY2c") so scores are globally
-// distinguishable even with duplicate usernames.
+// Public API is identical to the localStorage version.
+// All functions are async; callers in main.js already handle
+// them as fire-and-forget or await them inside async blocks.
 // ============================================================
+
+import { db } from './supabase.js';
 
 const PER_LEVEL_CAP = 10;
 
 /**
  * Saves a score for a player on a given level.
- * Only updates if the new score is a personal best for this display name.
- * Keeps a maximum of 10 entries per level, sorted by score.
+ * Upserts — updates only if the new score is higher.
  *
  * @param {number} level
  * @param {string} displayName  - "username#tag" format
  * @param {number} score
+ * @param {string} playerId     - the player's raw ID (for upsert key)
  */
-export function saveScore(level, displayName, score) {
-    let leaderboard =
-        JSON.parse(localStorage.getItem(`torchbound_lv${level}`)) || [];
+export async function saveScore(level, displayName, score, playerId) {
+    if (!playerId) return;
 
-    let playerEntryIndex = leaderboard.findIndex(
-        (entry) => entry.name.toLowerCase() === displayName.toLowerCase(),
+    // Read the player's current score for this level
+    const { data: existing } = await db
+        .from('scores')
+        .select('score')
+        .eq('player_id', playerId)
+        .eq('level', level)
+        .maybeSingle();
+
+    if (existing && existing.score >= score) return; // not a personal best
+
+    const { error } = await db.from('scores').upsert(
+        {
+            player_id: playerId,
+            display_name: displayName,
+            level,
+            score,
+        },
+        { onConflict: 'player_id,level' },
     );
 
-    if (playerEntryIndex !== -1) {
-        if (score > leaderboard[playerEntryIndex].score) {
-            leaderboard[playerEntryIndex].score = score;
-        }
-    } else {
-        leaderboard.push({ name: displayName, score });
-    }
-
-    leaderboard.sort((a, b) => b.score - a.score);
-    leaderboard = leaderboard.slice(0, PER_LEVEL_CAP);
-
-    localStorage.setItem(`torchbound_lv${level}`, JSON.stringify(leaderboard));
+    if (error) console.error('[leaderboard] saveScore error:', error.message);
 }
 
 /**
- * Returns the full top-10 leaderboard for a single level.
+ * Returns the top-10 scores for a single level, sorted descending.
  *
  * @param {number} level
- * @returns {{ name: string, score: number }[]}
+ * @returns {Promise<{ name: string, score: number }[]>}
  */
-export function getLeaderboard(level) {
-    return JSON.parse(localStorage.getItem(`torchbound_lv${level}`)) || [];
+export async function getLeaderboard(level) {
+    const { data, error } = await db
+        .from('scores')
+        .select('display_name, score')
+        .eq('level', level)
+        .order('score', { ascending: false })
+        .limit(PER_LEVEL_CAP);
+
+    if (error) {
+        console.error('[leaderboard] getLeaderboard error:', error.message);
+        return [];
+    }
+
+    return (data ?? []).map((row) => ({
+        name: row.display_name,
+        score: row.score,
+    }));
 }
 
 /**
  * Aggregates scores across all 5 levels into an overall leaderboard.
- * Each player's scores from every level are summed together.
- * Returns top 10.
+ * Returns top 10 by total cumulative score.
  *
- * @returns {{ name: string, score: number }[]}
+ * @returns {Promise<{ name: string, score: number }[]>}
  */
-export function getOverallLeaderboard() {
-    let totals = {};
+export async function getOverallLeaderboard() {
+    // Fetch all scores in one query, then aggregate in JS
+    const { data, error } = await db
+        .from('scores')
+        .select('display_name, score');
 
-    for (let i = 1; i <= 5; i++) {
-        let levelData =
-            JSON.parse(localStorage.getItem(`torchbound_lv${i}`)) || [];
-        levelData.forEach((entry) => {
-            if (!totals[entry.name]) totals[entry.name] = 0;
-            totals[entry.name] += entry.score;
-        });
+    if (error) {
+        console.error(
+            '[leaderboard] getOverallLeaderboard error:',
+            error.message,
+        );
+        return [];
+    }
+
+    const totals = {};
+    for (const row of data ?? []) {
+        totals[row.display_name] = (totals[row.display_name] ?? 0) + row.score;
     }
 
     return Object.entries(totals)

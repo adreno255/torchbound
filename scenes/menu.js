@@ -315,6 +315,14 @@ export function drawAccountScreen(
     const maxLen = isCreate ? 12 : 24;
     const charsLeft = maxLen - draftName.length;
 
+    const isWarning = accountError
+        ? accountError.includes('removed') || accountError.includes('truncated')
+        : false;
+
+    const isLoading = accountError
+        ? accountError.includes('Creating') || accountError.includes('Looking')
+        : false;
+
     p.textAlign(p.CENTER, p.CENTER);
 
     // ── Title ─────────────────────────────────────────────────
@@ -366,7 +374,15 @@ export function drawAccountScreen(
     p.noStroke();
     p.fill(20, 14, 8, 220);
     p.rect(cx, fieldY, fieldW, fieldH, 6);
-    p.stroke(accountError ? [200, 60, 60] : [88, 60, 28]);
+    p.stroke(
+        accountError
+            ? isLoading
+                ? [88, 60, 28]
+                : isWarning
+                  ? [255, 165, 0]
+                  : [200, 60, 60]
+            : [88, 60, 28],
+    );
     p.strokeWeight(accountError ? 2 : 1.5);
     p.noFill();
     p.rect(cx, fieldY, fieldW, fieldH, 6);
@@ -390,11 +406,13 @@ export function drawAccountScreen(
         p.textAlign(p.CENTER, p.CENTER);
         p.textSize(17);
 
-        // Logic: If it's just a paste warning, make it Orange. If it's a real error, stay Red.
-        const isWarning =
-            accountError.includes('removed') ||
-            accountError.includes('truncated');
-        p.fill(isWarning ? [255, 165, 0] : [255, 90, 90]);
+        p.fill(
+            isLoading
+                ? [200, 170, 110]
+                : isWarning
+                  ? [255, 165, 0]
+                  : [255, 90, 90],
+        );
 
         p.text(accountError, cx, fieldY + fieldH / 2 + 28);
     }
