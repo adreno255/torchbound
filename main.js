@@ -44,6 +44,7 @@ import {
     drawLeaderboard,
     drawTutorialPrompt,
     drawPlayerIdOverlay,
+    isAllowedNameChar,
 } from './scenes/menu.js';
 import {
     TUTORIAL_MAZE,
@@ -543,7 +544,14 @@ new p5((p) => {
             } else if (p.key.length === 1) {
                 if (!p.keyIsDown(p.CONTROL) && !p.keyIsDown(p.META)) {
                     const maxLen = accountTab === 'create' ? 12 : 24;
-                    if (draftName.length < maxLen) {
+                    // For the create tab, enforce allowed character set.
+                    // For the switch tab (pasting a Player ID), allow all printable ASCII
+                    // except # (Player IDs are auto-generated alphanumeric, no symbols).
+                    const allowed =
+                        accountTab === 'create'
+                            ? isAllowedNameChar(p.key)
+                            : isAllowedNameChar(p.key); // same rule applies to IDs
+                    if (allowed && draftName.length < maxLen) {
                         draftName += p.key;
                         accountError = '';
                     }
@@ -580,11 +588,33 @@ new p5((p) => {
     // ── Clipboard paste support ───────────────────────────────
     window.addEventListener('paste', (e) => {
         if (currentGameState !== GAME_STATE.ACCOUNTS) return;
-        const text = (e.clipboardData || window.clipboardData).getData('text');
-        if (!text) return;
+
+        const pastedText = (e.clipboardData || window.clipboardData).getData(
+            'text',
+        );
+        if (!pastedText) return;
+
+        // Filter characters based on your allowed set
+        let filteredText = '';
+        for (let char of pastedText) {
+            if (isAllowedNameChar(char)) {
+                filteredText += char;
+            }
+        }
+
         const maxLen = accountTab === 'create' ? 12 : 24;
-        draftName = (draftName + text).slice(0, maxLen);
-        accountError = '';
+        const oldLen = draftName.length;
+        draftName = (draftName + filteredText).slice(0, maxLen);
+
+        // Check if we stripped characters or hit the limit
+        if (filteredText.length < pastedText.length) {
+            accountError = 'Invalid characters removed from paste.';
+        } else if (oldLen + filteredText.length > maxLen) {
+            accountError = 'Paste truncated to character limit.';
+        } else {
+            accountError = ''; // Clear error if paste was clean
+        }
+
         e.preventDefault();
     });
 
@@ -1218,7 +1248,14 @@ new p5((p) => {
                     playerCurrentHighScore: getPersonalBest(currentLevel),
                     topScores: getLeaderboard(currentLevel),
                     onContinue: () => {
-                        currentGameState = GAME_STATE.LEVEL_SELECT;
+                        const lastLevel = Math.max(
+                            ...Object.keys(LEVELS).map(Number),
+                        );
+                        if (currentLevel === lastLevel) {
+                            currentGameState = GAME_STATE.GLOBAL_LEADERBOARD;
+                        } else {
+                            currentGameState = GAME_STATE.LEVEL_SELECT;
+                        }
                     },
                     onRetry: () => {
                         loadLevel(currentLevel);

@@ -262,6 +262,24 @@ export function drawMainMenu(
 // ---------------------------------------------------------------------------
 
 /**
+ * Returns true if the character is allowed in the name input field.
+ * Allows: A-Z, a-z, 0-9, and basic printable ASCII symbols EXCLUDING #.
+ * Blocks: #, emojis, Unicode letters, accented characters, invisible chars,
+ *         and anything outside the basic ASCII printable range (32-126).
+ *
+ * @param {string} char - a single character string
+ * @returns {boolean}
+ */
+export function isAllowedNameChar(char) {
+    if (char.length !== 1) return false;
+    const code = char.charCodeAt(0);
+    // Only basic ASCII printable characters (space through ~), excluding #
+    if (code < 32 || code > 126) return false;
+    if (char === '#') return false;
+    return true;
+}
+
+/**
  * Unified account screen with two clickable tab buttons.
  *
  * @param {object} p
@@ -355,11 +373,17 @@ export function drawAccountScreen(
     p.fill(charsLeft <= 3 ? [255, 120, 60] : [130, 110, 80]);
     p.text(`${charsLeft} left`, cx + fieldW / 2, fieldY + fieldH / 2 + 4);
 
-    // ── Error message ─────────────────────────────────────────
+    // ── Error/Warning message ─────────────────────────────────────────
     if (accountError) {
         p.textAlign(p.CENTER, p.CENTER);
         p.textSize(17);
-        p.fill(255, 90, 90);
+
+        // Logic: If it's just a paste warning, make it Orange. If it's a real error, stay Red.
+        const isWarning =
+            accountError.includes('removed') ||
+            accountError.includes('truncated');
+        p.fill(isWarning ? [255, 165, 0] : [255, 90, 90]);
+
         p.text(accountError, cx, fieldY + fieldH / 2 + 28);
     }
 
@@ -375,16 +399,34 @@ export function drawAccountScreen(
     p.fill(180);
     p.text(hintEnter, cx, cy + 30);
 
+    if (isCreate) {
+        p.textSize(13);
+        p.fill(120, 100, 70);
+        p.text(
+            'Letters, numbers, and basic symbols only. # and emojis are not allowed.',
+            cx,
+            cy + 54,
+        );
+    } else {
+        p.textSize(13);
+        p.fill(120, 100, 70);
+        p.text(
+            'Letters and numbers only. Symbols and emojis are not allowed.',
+            cx,
+            cy + 54,
+        );
+    }
+
     p.textSize(14);
     p.fill(100);
     p.text(
         'Pressing Back will keep your current account logged in.',
         cx,
-        cy + 58,
+        p.windowHeight - 130,
     );
 
     // ── Reminder box ─────────────────────────────────────────
-    const reminderY = p.windowHeight - 150;
+    const reminderY = p.windowHeight - 180;
     const reminderW = 560;
     p.push();
     p.rectMode(p.CENTER);
@@ -459,7 +501,6 @@ function _drawTabButton(p, label, x, y, w, h, active, onClick, fonts) {
     }
 
     // Background fill
-    const isLit = active || hovered;
     p.push();
     p.rectMode(p.CORNER);
     p.noStroke();
@@ -710,7 +751,7 @@ function drawLockedButton(
  * @param {string}   params.playerDisplayName          - "username#tag"
  * @param {string}   params.playerCurrentHighScore     - player's current high score in the level
  * @param {Array}    params.topScores
- * @param {function} params.onContinue
+ * @param {function} params.onContinue   - goes to level select (non-final) or leaderboard (final)
  * @param {function} params.onRetry
  * @param {function} params.onMenu
  * @param {object}   [params.fonts]
@@ -734,14 +775,21 @@ export function drawVictory(
 ) {
     const displayScores = topScores.slice(0, 5);
 
+    // Determine last level dynamically from the levels object
+    const lastLevel = Math.max(...Object.keys(levels).map(Number));
+    const isFinalLevel = currentLevel === lastLevel;
+
     p.textAlign(p.CENTER, p.CENTER);
 
     if (fonts?.heading) p.textFont(fonts.heading);
+
+    // ── Headline — dynamic per level ───────────────────────────────────────
+    const headline = isFinalLevel ? 'YOU ESCAPED!' : 'LEVEL CLEARED!';
     p.textSize(108);
     p.fill(80);
-    p.text('YOU ESCAPED!', p.windowWidth / 2, p.windowHeight / 2 - 290);
-    p.fill(255);
-    p.text('YOU ESCAPED!', p.windowWidth / 2, p.windowHeight / 2 - 295);
+    p.text(headline, p.windowWidth / 2, p.windowHeight / 2 - 290);
+    p.fill(isFinalLevel ? [255, 220, 80] : 255);
+    p.text(headline, p.windowWidth / 2, p.windowHeight / 2 - 295);
 
     p.textSize(28);
     p.text(victoryMessage, p.windowWidth / 2, p.windowHeight / 2 - 200);
@@ -801,9 +849,11 @@ export function drawVictory(
         );
     });
 
+    // ── Buttons — final level swaps Continue → Leaderboards ───────────────
+    const continueLabel = isFinalLevel ? 'LEADERBOARDS' : 'CONTINUE';
     drawButton(
         p,
-        'CONTINUE',
+        continueLabel,
         p.windowWidth / 2 - 325,
         p.windowHeight / 2 + 240,
         onContinue,
