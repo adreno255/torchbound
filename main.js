@@ -37,12 +37,13 @@ import {
 import { drawHUD, drawIntroCountdown, drawPauseMenu } from './scenes/game.js';
 import {
     drawMainMenu,
-    drawNameInput,
+    drawAccountScreen,
     drawLevelSelect,
     drawVictory,
     drawGameOver,
     drawLeaderboard,
     drawTutorialPrompt,
+    drawPlayerIdOverlay,
 } from './scenes/menu.js';
 import {
     saveScore,
@@ -63,6 +64,8 @@ import {
     hasDoneTutorial,
     markTutorialDone,
     getDisplayName,
+    readProfileById,
+    setActivePlayerId,
 } from './common/playerProfile.js';
 
 // ============================================================
@@ -111,6 +114,7 @@ new p5((p) => {
     let hudBarImg = null;
     let hudHeartImg = null;
     let hudClockImg = null;
+    let copyIconImg = null;
 
     let fontHeading = null;
     let fontBody = null;
@@ -150,13 +154,13 @@ new p5((p) => {
     let moveTimer = 0;
     let levelScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
-    // ── Player profile state ──────────────────────────────────
-    // draftName: the name being typed in the Name Input screen.
-    // It is NOT committed to a profile until Enter is pressed.
-    // Going Back discards it and keeps the existing profile.
+    // ── Account state ─────────────────────────────────────────
+    // draftName is NOT committed until the user presses ENTER.
+    // Going Back discards it.
     let draftName = '';
+    let accountTab = 'create'; // 'create' | 'switch'
+    let accountError = '';
 
-    // Helper: returns the active profile's display name, or null
     function getActiveDisplayName() {
         const profile = getActiveProfile();
         if (!profile) return null;
@@ -215,6 +219,7 @@ new p5((p) => {
             hudBar: hudBarImg,
             hudHeart: hudHeartImg,
             hudClock: hudClockImg,
+            copyIcon: copyIconImg,
         };
     }
 
@@ -284,6 +289,11 @@ new p5((p) => {
             'assets/ui/hud-clock.png',
             () => console.log('Loaded: hud-clock.png'),
             () => console.warn('Not found: assets/ui/hud-clock.png'),
+        );
+        copyIconImg = p.loadImage(
+            'assets/ui/copy-icon.png',
+            () => console.log('Loaded: copy-icon.png'),
+            () => console.warn('Not found: assets/ui/copy-icon.png'),
         );
 
         fontHeading = p.loadFont(
@@ -431,6 +441,23 @@ new p5((p) => {
             p.pop();
         }
 
+        // ── Player ID overlay — every non-playing screen ──────
+        if (currentGameState !== GAME_STATE.PLAYING) {
+            const profile = getActiveProfile();
+            if (profile) {
+                drawPlayerIdOverlay(p, {
+                    playerId: profile.playerId,
+                    fonts: getFonts(),
+                    assets: getAssets(),
+                    onCopy: () => {
+                        navigator.clipboard
+                            .writeText(profile.playerId)
+                            .catch(() => {});
+                    },
+                });
+            }
+        }
+
         p.canvas.style.cursor = _anyButtonHovered ? 'pointer' : 'default';
     };
 
@@ -442,20 +469,43 @@ new p5((p) => {
     // ── Keyboard ─────────────────────────────────────────────
 
     p.keyPressed = () => {
-        if (currentGameState === GAME_STATE.NAME_INPUT) {
+        if (currentGameState === GAME_STATE.ACCOUNTS) {
             if (p.keyCode === p.ENTER) {
-                // Only commit if they actually typed something
-                if (draftName.trim().length > 0) {
-                    createProfile(draftName.trim());
-                    draftName = '';
-                    // After creating a profile, check if tutorial should be prompted
-                    currentGameState = GAME_STATE.TUTORIAL_PROMPT;
+                if (accountTab === 'create') {
+                    if (draftName.trim().length > 0) {
+                        createProfile(draftName.trim());
+                        draftName = '';
+                        accountError = '';
+                        currentGameState = GAME_STATE.TUTORIAL_PROMPT;
+                    }
+                } else {
+                    // switch account by Player ID
+                    const trimmed = draftName.trim();
+                    if (trimmed.length > 0) {
+                        const found = readProfileById(trimmed);
+                        if (found) {
+                            setActivePlayerId(found.playerId);
+                            draftName = '';
+                            accountError = '';
+                            currentGameState = GAME_STATE.MENU;
+                        } else {
+                            accountError =
+                                'No account found with that Player ID.';
+                        }
+                    }
                 }
-                // If empty, do nothing (stay on name input)
             } else if (p.keyCode === p.BACKSPACE) {
                 draftName = draftName.slice(0, -1);
-            } else if (p.key.length === 1 && draftName.length < 12) {
-                draftName += p.key;
+                accountError = '';
+            } else if (p.key.length === 1) {
+                // IGNORE if Control (Windows/Linux) or Meta (Mac) is held down
+                if (!p.keyIsDown(p.CONTROL) && !p.keyIsDown(p.META)) {
+                    const maxLen = accountTab === 'create' ? 12 : 24;
+                    if (draftName.length < maxLen) {
+                        draftName += p.key;
+                        accountError = '';
+                    }
+                }
             }
             return;
         }
@@ -481,6 +531,17 @@ new p5((p) => {
             if (p.key === 'f' || p.key === 'F') enableFog = !enableFog;
         }
     };
+
+    // ── Clipboard paste support ───────────────────────────────
+    window.addEventListener('paste', (e) => {
+        if (currentGameState !== GAME_STATE.ACCOUNTS) return;
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (!text) return;
+        const maxLen = accountTab === 'create' ? 12 : 24;
+        draftName = (draftName + text).slice(0, maxLen);
+        accountError = '';
+        e.preventDefault();
+    });
 
     // ── Screen-effect helpers ─────────────────────────────────
 
@@ -846,12 +907,19 @@ new p5((p) => {
 
     // ── Screen Routing ────────────────────────────────────────
 
+    /** Open the accounts screen, optionally pre-selecting a tab. */
+    function openAccounts(tab = 'create') {
+        draftName = '';
+        accountTab = tab;
+        accountError = '';
+        currentGameState = GAME_STATE.ACCOUNTS;
+    }
+
     function drawScreen() {
         const fonts = getFonts();
         const assets = getAssets();
 
         switch (currentGameState) {
-            // ── TUTORIAL_PROMPT: shown after creating a new account ──────
             case GAME_STATE.TUTORIAL_PROMPT:
                 drawTutorialPrompt(p, {
                     onYes: () => {
@@ -867,10 +935,8 @@ new p5((p) => {
                 });
                 break;
 
-            // ── TUTORIAL: placeholder — you'll flesh this out later ──────
             case GAME_STATE.TUTORIAL:
-                // For now, just go to level select.
-                // Replace this block with your tutorial scene.
+                // Placeholder — replace with real tutorial scene.
                 currentGameState = GAME_STATE.LEVEL_SELECT;
                 break;
 
@@ -879,9 +945,7 @@ new p5((p) => {
                     displayName: getActiveDisplayName(),
                     onPlay: () => {
                         if (!getActiveProfile()) {
-                            // No profile yet — must create one first
-                            draftName = '';
-                            currentGameState = GAME_STATE.NAME_INPUT;
+                            openAccounts('create');
                         } else {
                             currentGameState = GAME_STATE.LEVEL_SELECT;
                         }
@@ -889,11 +953,7 @@ new p5((p) => {
                     onTutorial: () => {
                         currentGameState = GAME_STATE.TUTORIAL;
                     },
-                    onChangePlayer: () => {
-                        // Clear draft — don't pre-fill with current name
-                        draftName = '';
-                        currentGameState = GAME_STATE.NAME_INPUT;
-                    },
+                    onAccounts: () => openAccounts('create'),
                     onLeaderboard: () => {
                         currentGameState = GAME_STATE.GLOBAL_LEADERBOARD;
                     },
@@ -902,12 +962,20 @@ new p5((p) => {
                 });
                 break;
 
-            case GAME_STATE.NAME_INPUT:
-                drawNameInput(p, {
+            case GAME_STATE.ACCOUNTS:
+                drawAccountScreen(p, {
                     draftName,
-                    onBack: () => {
-                        // Discard draftName — do NOT commit it
+                    accountTab,
+                    accountError,
+                    // Called by the clickable tab buttons in drawAccountScreen
+                    onSwitchTab: (tab) => {
+                        accountTab = tab;
                         draftName = '';
+                        accountError = '';
+                    },
+                    onBack: () => {
+                        draftName = '';
+                        accountError = '';
                         currentGameState = GAME_STATE.MENU;
                     },
                     fonts,

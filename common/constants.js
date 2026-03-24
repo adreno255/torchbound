@@ -15,9 +15,9 @@ export const TORCH_RADIUS_BASE = 2;
 
 export const GAME_STATE = {
     MENU: 'menu',
-    NAME_INPUT: 'name_input',
-    TUTORIAL_PROMPT: 'tutorial_prompt', // First-time prompt: play tutorial?
-    TUTORIAL: 'tutorial', // Tutorial gameplay scene
+    ACCOUNTS: 'accounts', // renamed from NAME_INPUT
+    TUTORIAL_PROMPT: 'tutorial_prompt',
+    TUTORIAL: 'tutorial',
     LEVEL_SELECT: 'level_select',
     PLAYING: 'playing',
     PAUSED: 'paused',
@@ -67,7 +67,6 @@ export function getFireTrapDamage(level) {
 export const TRAPS = {
     4: {
         name: 'fire',
-        // damage is level-dependent — use getFireTrapDamage(level) at runtime
         activeTime: 2000,
         inactiveTime: 1500,
         type: 'damage',
@@ -90,6 +89,6 @@ export const TRAPS = {
 };
 
 export const POWER_UP_DURATIONS = {
-    TORCH: 5000, // 5 seconds of extra light
-    VISION: 3000, // 3 seconds of full map reveal
+    TORCH: 5000,
+    VISION: 3000,
 };

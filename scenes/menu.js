@@ -1,6 +1,6 @@
 // ============================================================
 // scenes/menu.js
-// All non-gameplay screens: main menu, name input, level select,
+// All non-gameplay screens: main menu, accounts, level select,
 // victory, game over, leaderboard, and tutorial prompt.
 // ============================================================
 
@@ -74,16 +74,102 @@ export function drawScrollCard(p, scrollImg, cx, cy, w, h) {
 }
 
 // ---------------------------------------------------------------------------
+// Player ID overlay — bottom-left corner of every non-playing screen
+// Includes a clickable copy icon button.
+// ---------------------------------------------------------------------------
+
+// Hit-area constants (module-level so mousePressed in main can query them)
+const PID_ICON_SIZE = 18;
+const PID_PAD_LEFT = 12;
+const PID_PAD_BOT = 10;
+
+/**
+ * Draws the active player's Player ID in the bottom-left corner with a
+ * copy icon button next to it.  Registers a pointer hover when the icon
+ * is hovered, and fires onCopy when it is clicked.
+ *
+ * @param {object} p
+ * @param {object} params
+ * @param {string}   params.playerId
+ * @param {function} params.onCopy       - called when copy icon is clicked
+ * @param {object}   [params.fonts]
+ * @param {object}   [params.assets]     - expects assets.copyIcon (p5.Image)
+ */
+export function drawPlayerIdOverlay(p, { playerId, onCopy, fonts, assets }) {
+    if (!playerId) return;
+
+    p.push();
+    p.resetMatrix();
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(13);
+    p.textAlign(p.LEFT, p.BOTTOM);
+
+    const textY = p.windowHeight - PID_PAD_BOT;
+    const label = `Player ID: ${playerId}`;
+
+    // Shadow then lit text
+    p.fill(0, 0, 0, 140);
+    p.text(label, PID_PAD_LEFT + 1, textY + 1);
+    p.fill(160, 140, 100, 210);
+    p.text(label, PID_PAD_LEFT, textY);
+
+    // ── Copy icon ─────────────────────────────────────────────
+    const textW = p.textWidth(label);
+    const iconX = PID_PAD_LEFT + textW + 6;
+    const iconY = textY - PID_ICON_SIZE; // CORNER mode top-left
+
+    const hovered =
+        p.mouseX >= iconX &&
+        p.mouseX <= iconX + PID_ICON_SIZE &&
+        p.mouseY >= iconY &&
+        p.mouseY <= iconY + PID_ICON_SIZE;
+
+    if (hovered && typeof p._registerButtonHover === 'function') {
+        p._registerButtonHover();
+    }
+
+    const copyImg = assets?.copyIcon ?? null;
+    p.imageMode(p.CORNER);
+
+    if (copyImg) {
+        p.tint(
+            hovered ? 255 : 180,
+            hovered ? 255 : 200,
+            hovered ? 160 : 120,
+            hovered ? 255 : 180,
+        );
+        p.image(copyImg, iconX, iconY, PID_ICON_SIZE, PID_ICON_SIZE);
+        p.noTint();
+    } else {
+        // Fallback: draw a simple clipboard rectangle
+        p.noStroke();
+        p.fill(hovered ? [255, 230, 140, 220] : [160, 140, 100, 160]);
+        p.rect(iconX + 2, iconY + 2, PID_ICON_SIZE - 4, PID_ICON_SIZE - 4, 2);
+        p.fill(hovered ? [60, 40, 10, 200] : [30, 20, 5, 140]);
+        p.rect(iconX + 5, iconY, PID_ICON_SIZE - 10, 4, 1);
+    }
+
+    // Click detection — fire onCopy
+    if (hovered && p.mouseIsPressed && onCopy) {
+        p.mouseIsPressed = false;
+        onCopy();
+    }
+
+    p.pop();
+}
+
+// ---------------------------------------------------------------------------
 // Main Menu
 // ---------------------------------------------------------------------------
 
 /**
  * @param {object} p
  * @param {object} params
- * @param {string|null} params.displayName  - "username#tag" or null if no profile
+ * @param {string|null} params.displayName
  * @param {function}    params.onPlay
  * @param {function}    params.onTutorial
- * @param {function}    params.onChangePlayer
+ * @param {function}    params.onAccounts
  * @param {function}    params.onLeaderboard
  * @param {object}      [params.fonts]
  * @param {object}      [params.assets]
@@ -94,7 +180,7 @@ export function drawMainMenu(
         displayName,
         onPlay,
         onTutorial,
-        onChangePlayer,
+        onAccounts,
         onLeaderboard,
         fonts,
         assets,
@@ -104,7 +190,6 @@ export function drawMainMenu(
 
     if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(200);
-
     p.fill(80);
     p.text('Torchbound', p.windowWidth / 2, p.windowHeight / 2 - 240);
     p.fill(255);
@@ -150,10 +235,10 @@ export function drawMainMenu(
     );
     drawButton(
         p,
-        'CHANGE PLAYER',
+        'ACCOUNTS',
         p.windowWidth / 2,
         firstBtnY + 140,
-        onChangePlayer,
+        onAccounts,
         300,
         50,
         fonts,
@@ -173,56 +258,166 @@ export function drawMainMenu(
 }
 
 // ---------------------------------------------------------------------------
-// Name Input
+// Account Screen  (CREATE ACCOUNT / SWITCH ACCOUNT)
 // ---------------------------------------------------------------------------
 
 /**
+ * Unified account screen with two clickable tab buttons.
+ *
  * @param {object} p
  * @param {object} params
- * @param {string}   params.draftName    - the in-progress typed name (not yet committed)
- * @param {function} params.onBack       - called without committing the name
+ * @param {string}   params.draftName      - current typed text (not committed)
+ * @param {string}   params.accountTab     - 'create' | 'switch'
+ * @param {string}   params.accountError   - error message string, or ''
+ * @param {function} params.onSwitchTab    - called with 'create' or 'switch'
+ * @param {function} params.onBack         - discard draft, go back to menu
  * @param {object}   [params.fonts]
  * @param {object}   [params.assets]
  */
-export function drawNameInput(p, { draftName, onBack, fonts, assets }) {
+export function drawAccountScreen(
+    p,
+    { draftName, accountTab, accountError, onSwitchTab, onBack, fonts, assets },
+) {
+    const cx = p.windowWidth / 2;
+    const cy = p.windowHeight / 2;
+
+    const isCreate = accountTab === 'create';
+    const maxLen = isCreate ? 12 : 24;
+    const charsLeft = maxLen - draftName.length;
+
     p.textAlign(p.CENTER, p.CENTER);
 
+    // ── Title ─────────────────────────────────────────────────
     if (fonts?.heading) p.textFont(fonts.heading);
     p.textSize(48);
     p.fill(80);
-    p.text('ENTER YOUR NAME', p.windowWidth / 2, p.windowHeight / 2 - 100);
+    p.text(isCreate ? 'CREATE ACCOUNT' : 'SWITCH ACCOUNT', cx, cy - 180);
     p.fill(255);
-    p.text('ENTER YOUR NAME', p.windowWidth / 2, p.windowHeight / 2 - 103);
+    p.text(isCreate ? 'CREATE ACCOUNT' : 'SWITCH ACCOUNT', cx, cy - 183);
 
-    p.textSize(48);
+    // ── Tab buttons ───────────────────────────────────────────
+    const tabW = 200;
+    const tabH = 38;
+    const tabGap = 16;
+    const tabY = cy - 130;
+    const tabLX = cx - tabW - tabGap / 2; // left tab origin X (CORNER mode)
+    const tabRX = cx + tabGap / 2; // right tab origin X
+
+    _drawTabButton(
+        p,
+        'CREATE',
+        tabLX,
+        tabY,
+        tabW,
+        tabH,
+        isCreate,
+        () => onSwitchTab('create'),
+        fonts,
+    );
+    _drawTabButton(
+        p,
+        'SWITCH',
+        tabRX,
+        tabY,
+        tabW,
+        tabH,
+        !isCreate,
+        () => onSwitchTab('switch'),
+        fonts,
+    );
+
+    // ── Input field ───────────────────────────────────────────
+    const fieldW = 480;
+    const fieldH = 54;
+    const fieldY = cy - 50;
+
+    p.push();
+    p.rectMode(p.CENTER);
+    p.noStroke();
+    p.fill(20, 14, 8, 220);
+    p.rect(cx, fieldY, fieldW, fieldH, 6);
+    p.stroke(accountError ? [200, 60, 60] : [88, 60, 28]);
+    p.strokeWeight(accountError ? 2 : 1.5);
+    p.noFill();
+    p.rect(cx, fieldY, fieldW, fieldH, 6);
+    p.pop();
+
+    if (fonts?.heading) p.textFont(fonts.heading);
+    p.textSize(30);
     p.fill(255, 255, 0);
-    p.text(
-        draftName + (p.frameCount % 30 < 15 ? '_' : ''),
-        p.windowWidth / 2,
-        p.windowHeight / 2,
-    );
+    p.textAlign(p.CENTER, p.CENTER);
+    p.text(draftName + (p.frameCount % 30 < 15 ? '_' : ''), cx, fieldY);
 
+    // ── Character counter ─────────────────────────────────────
     if (fonts?.body) p.textFont(fonts.body);
-    p.textSize(18);
-    p.fill(150);
-    p.text(
-        'Type your name and press ENTER to continue',
-        p.windowWidth / 2,
-        p.windowHeight / 2 + 80,
-    );
-    p.textSize(15);
+    p.textSize(13);
+    p.textAlign(p.RIGHT, p.TOP);
+    p.fill(charsLeft <= 3 ? [255, 120, 60] : [130, 110, 80]);
+    p.text(`${charsLeft} left`, cx + fieldW / 2, fieldY + fieldH / 2 + 4);
+
+    // ── Error message ─────────────────────────────────────────
+    if (accountError) {
+        p.textAlign(p.CENTER, p.CENTER);
+        p.textSize(17);
+        p.fill(255, 90, 90);
+        p.text(accountError, cx, fieldY + fieldH / 2 + 28);
+    }
+
+    // ── Hint texts ────────────────────────────────────────────
+    p.textAlign(p.CENTER, p.CENTER);
+    if (fonts?.body) p.textFont(fonts.body);
+
+    const hintEnter = isCreate
+        ? 'Type your name and press ENTER to continue'
+        : 'Type your Player ID and press ENTER to continue';
+
+    p.textSize(17);
+    p.fill(180);
+    p.text(hintEnter, cx, cy + 30);
+
+    p.textSize(14);
     p.fill(100);
     p.text(
-        'Pressing Back will keep your current account',
-        p.windowWidth / 2,
-        p.windowHeight / 2 + 110,
+        'Pressing Back will keep your current account logged in.',
+        cx,
+        cy + 58,
     );
 
+    // ── Reminder box ─────────────────────────────────────────
+    const reminderY = p.windowHeight - 150;
+    const reminderW = 560;
+    p.push();
+    p.rectMode(p.CENTER);
+    p.fill(18, 12, 6, 180);
+    p.noStroke();
+    p.rect(cx, reminderY, reminderW, 68, 6);
+    p.stroke(70, 48, 20, 140);
+    p.strokeWeight(1);
+    p.noFill();
+    p.rect(cx, reminderY, reminderW, 68, 6);
+    p.pop();
+
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(13);
+    p.fill(160, 130, 80);
+    p.textAlign(p.CENTER, p.CENTER);
+    p.text(
+        'REMINDER: Creating or switching accounts logs you in immediately.',
+        cx,
+        reminderY - 12,
+    );
+    p.text(
+        'Save your Player ID (bottom-left) to log back into this account later.',
+        cx,
+        reminderY + 12,
+    );
+
+    // ── Back button ───────────────────────────────────────────
     drawButton(
         p,
         'BACK TO MENU',
-        p.windowWidth / 2,
-        p.windowHeight - 80,
+        cx,
+        p.windowHeight - 68,
         onBack,
         300,
         50,
@@ -232,21 +427,87 @@ export function drawNameInput(p, { draftName, onBack, fonts, assets }) {
 }
 
 // ---------------------------------------------------------------------------
-// Tutorial Prompt  (first-time play prompt)
+// Tab button helper
+// Renders a pill-style tab button with hover state and click handling.
+// Uses CORNER rect mode (x, y = top-left corner).
 // ---------------------------------------------------------------------------
 
 /**
- * Draws the "Would you like to play the tutorial?" modal over a darkened screen.
- *
- * @param {object} p
- * @param {object} params
- * @param {function} params.onYes      - play tutorial
- * @param {function} params.onNo       - skip tutorial, go to level select
- * @param {object}   [params.fonts]
- * @param {object}   [params.assets]
+ * @param {object}   p
+ * @param {string}   label
+ * @param {number}   x        - left edge
+ * @param {number}   y        - vertical centre
+ * @param {number}   w
+ * @param {number}   h
+ * @param {boolean}  active   - whether this tab is currently selected
+ * @param {function} onClick
+ * @param {object}   [fonts]
  */
+function _drawTabButton(p, label, x, y, w, h, active, onClick, fonts) {
+    // y here is the vertical centre; rect is drawn top-left = (x, y - h/2)
+    const rx = x;
+    const ry = y - h / 2;
+
+    const hovered =
+        p.mouseX >= rx &&
+        p.mouseX <= rx + w &&
+        p.mouseY >= ry &&
+        p.mouseY <= ry + h;
+
+    if (hovered && typeof p._registerButtonHover === 'function') {
+        p._registerButtonHover();
+    }
+
+    // Background fill
+    const isLit = active || hovered;
+    p.push();
+    p.rectMode(p.CORNER);
+    p.noStroke();
+    if (active) {
+        p.fill(140, 90, 30, 230);
+    } else if (hovered) {
+        p.fill(80, 52, 18, 220);
+    } else {
+        p.fill(30, 20, 10, 180);
+    }
+    p.rect(rx, ry, w, h, 5);
+
+    // Border
+    if (active) {
+        p.stroke(200, 150, 60, 200);
+        p.strokeWeight(1.5);
+        p.noFill();
+        p.rect(rx, ry, w, h, 5);
+    } else if (hovered) {
+        p.stroke(140, 100, 40, 140);
+        p.strokeWeight(1);
+        p.noFill();
+        p.rect(rx, ry, w, h, 5);
+    }
+
+    // Label
+    p.noStroke();
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(15);
+    p.fill(
+        active ? [255, 230, 160] : hovered ? [200, 170, 110] : [120, 100, 70],
+    );
+    p.textAlign(p.CENTER, p.CENTER);
+    p.text(label, rx + w / 2, y);
+    p.pop();
+
+    // Click
+    if (hovered && p.mouseIsPressed && !active) {
+        p.mouseIsPressed = false;
+        onClick();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial Prompt
+// ---------------------------------------------------------------------------
+
 export function drawTutorialPrompt(p, { onYes, onNo, fonts, assets }) {
-    // Dark overlay
     p.push();
     p.fill(0, 200);
     p.noStroke();
@@ -257,7 +518,6 @@ export function drawTutorialPrompt(p, { onYes, onNo, fonts, assets }) {
     const cx = p.windowWidth / 2;
     const cy = p.windowHeight / 2;
 
-    // Card background
     const cardW = 520;
     const cardH = 285;
     p.push();
@@ -268,7 +528,6 @@ export function drawTutorialPrompt(p, { onYes, onNo, fonts, assets }) {
     p.rect(cx, cy, cardW, cardH, 8);
     p.pop();
 
-    // Torch icon accent line
     p.push();
     p.stroke(200, 140, 40, 160);
     p.strokeWeight(1);
@@ -421,10 +680,9 @@ function drawLockedButton(
     const textW = p.textWidth(label);
     const totalContentWidth = lockSize + spacing + textW;
     const startX = cx - totalContentWidth / 2;
-
-    p.imageMode(p.CENTER);
     const lockCenterX = startX + lockSize / 2;
 
+    p.imageMode(p.CENTER);
     if (lockImg) {
         p.image(lockImg, lockCenterX, cy, lockSize, lockSize);
     } else {
@@ -646,7 +904,7 @@ export function drawGameOver(
 }
 
 // ---------------------------------------------------------------------------
-// Leaderboard  (Hall of Fame)
+// Leaderboard
 // ---------------------------------------------------------------------------
 
 /**

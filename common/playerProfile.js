@@ -94,6 +94,20 @@ function readProfile(playerId) {
     }
 }
 
+/**
+ * Looks up a profile directly by its playerId string.
+ * Returns null if no matching profile exists in localStorage.
+ *
+ * Used by the "Switch Account" flow where the user pastes their Player ID.
+ *
+ * @param {string} playerId
+ * @returns {object|null} PlayerProfile
+ */
+export function readProfileById(playerId) {
+    if (!playerId) return null;
+    return readProfile(playerId.trim());
+}
+
 function writeProfile(profile) {
     localStorage.setItem(profileKey(profile.playerId), JSON.stringify(profile));
 }
