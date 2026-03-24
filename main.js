@@ -156,6 +156,7 @@ new p5((p) => {
     let hudClockImg = null;
     let copyIconImg = null;
     let developerImg = null;
+    let downloadIconImg = null;
 
     let fontHeading = null;
     let fontBody = null;
@@ -276,6 +277,7 @@ new p5((p) => {
             hudClock: hudClockImg,
             copyIcon: copyIconImg,
             developerImg,
+            downloadIcon: downloadIconImg,
         };
     }
 
@@ -394,6 +396,11 @@ new p5((p) => {
             'assets/ui/developer_image.JPG',
             () => console.log('Loaded: developer_image.JPG'),
             () => console.warn('Not found: assets/ui/developer_image.JPG'),
+        );
+        downloadIconImg = p.loadImage(
+            'assets/ui/download-icon.png',
+            () => console.log('Loaded: download-icon.png'),
+            () => console.warn('Not found: assets/ui/download-icon.png'),
         );
 
         fontHeading = p.loadFont(
@@ -1377,6 +1384,7 @@ new p5((p) => {
                     draftName,
                     accountTab,
                     accountError,
+                    activeProfile: getActiveProfile(),
                     onSwitchTab: (tab) => {
                         accountTab = tab;
                         draftName = '';

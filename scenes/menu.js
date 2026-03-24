@@ -306,7 +306,16 @@ export function isAllowedNameChar(char) {
  */
 export function drawAccountScreen(
     p,
-    { draftName, accountTab, accountError, onSwitchTab, onBack, fonts, assets },
+    {
+        draftName,
+        accountTab,
+        accountError,
+        activeProfile,
+        onSwitchTab,
+        onBack,
+        fonts,
+        assets,
+    },
 ) {
     const cx = p.windowWidth / 2;
     const cy = p.windowHeight / 2;
@@ -393,6 +402,84 @@ export function drawAccountScreen(
     p.fill(255, 255, 0);
     p.textAlign(p.CENTER, p.CENTER);
     p.text(draftName + (p.frameCount % 30 < 15 ? '_' : ''), cx, fieldY);
+
+    // ── Download button — only on Create tab, only when a profile exists ──
+    if (accountTab === 'create' && activeProfile) {
+        const ICON_SIZE = 36;
+        const BTN_SIZE = 48;
+        const btnX = cx + fieldW / 2 + 14; // just right of the input field
+        const btnY = fieldY - BTN_SIZE / 2; // top-left corner (CORNER mode)
+
+        const hovered =
+            p.mouseX >= btnX &&
+            p.mouseX <= btnX + BTN_SIZE &&
+            p.mouseY >= btnY &&
+            p.mouseY <= btnY + BTN_SIZE;
+
+        if (hovered && typeof p._registerButtonHover === 'function') {
+            p._registerButtonHover();
+        }
+
+        // Button background
+        p.push();
+        p.rectMode(p.CORNER);
+        p.noStroke();
+        p.fill(hovered ? [80, 52, 18, 220] : [30, 20, 10, 180]);
+        p.rect(btnX, btnY, BTN_SIZE, BTN_SIZE, 6);
+        if (hovered) {
+            p.stroke(140, 100, 40, 180);
+            p.strokeWeight(1);
+            p.noFill();
+            p.rect(btnX, btnY, BTN_SIZE, BTN_SIZE, 6);
+        }
+        p.pop();
+
+        // Icon
+        const downloadImg = assets?.downloadIcon ?? null;
+        p.imageMode(p.CORNER);
+        if (downloadImg) {
+            p.tint(
+                hovered ? 255 : 200,
+                hovered ? 220 : 180,
+                hovered ? 140 : 100,
+                hovered ? 255 : 200,
+            );
+            p.image(
+                downloadImg,
+                btnX + (BTN_SIZE - ICON_SIZE) / 2,
+                btnY + (BTN_SIZE - ICON_SIZE) / 2,
+                ICON_SIZE,
+                ICON_SIZE,
+            );
+            p.noTint();
+        } else {
+            // Fallback: draw a simple ↓ arrow
+            p.push();
+            p.fill(hovered ? [255, 220, 140] : [160, 130, 80]);
+            p.noStroke();
+            p.textSize(22);
+            p.textAlign(p.CENTER, p.CENTER);
+            p.text('↓', btnX + BTN_SIZE / 2, btnY + BTN_SIZE / 2);
+            p.pop();
+        }
+
+        // Tooltip
+        if (hovered) {
+            p.push();
+            if (fonts?.body) p.textFont(fonts.body);
+            p.textSize(13);
+            p.textAlign(p.LEFT, p.CENTER);
+            p.fill(200, 180, 120, 220);
+            p.text('Save logged-in credentials', btnX + BTN_SIZE + 6, fieldY);
+            p.pop();
+        }
+
+        // Click — trigger download
+        if (hovered && p.mouseIsPressed) {
+            p.mouseIsPressed = false;
+            _downloadCredentials(activeProfile);
+        }
+    }
 
     // ── Character counter ─────────────────────────────────────
     if (fonts?.body) p.textFont(fonts.body);
@@ -496,6 +583,35 @@ export function drawAccountScreen(
         fonts,
         assets,
     );
+}
+
+// ── Credential download helper ────────────────────────────────────────────
+
+/**
+ * Triggers a browser download of a .txt file containing the player's
+ * username and Player ID.
+ *
+ * File content example:
+ *   gelo #OFFKz26CIdlG5PNaTsdjWGSr
+ *
+ * File name example:
+ *   torchbound_player_OFFKz26CIdlG5PNaTsdjWGSr.txt
+ *
+ * @param {{ username: string, playerId: string }} profile
+ */
+function _downloadCredentials(profile) {
+    const content = `${profile.username} #${profile.playerId}`;
+    const filename = `torchbound_player_${profile.playerId}.txt`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+
+    URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------
