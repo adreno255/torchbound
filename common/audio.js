@@ -68,6 +68,7 @@ const CROSSFADE_MS = 1200;
 let ctx = null; // AudioContext
 let masterBgm = null; // GainNode — BGM master bus
 let masterSfx = null; // GainNode — SFX master bus
+let audioLoaded = false;
 
 // BGM playback state
 const bgm = {
@@ -107,6 +108,10 @@ export function initAudio() {
  */
 export function resumeAudio() {
     if (ctx && ctx.state === 'suspended') ctx.resume();
+    if (!audioLoaded) {
+        audioLoaded = true;
+        loadAllAudio().then(() => console.log('[audio] All audio loaded'));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────

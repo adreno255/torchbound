@@ -417,15 +417,6 @@ new p5((p) => {
         powerupSheetImg = imgCache['assets/powerups/powerups.png'] || null;
         playerImg = imgCache['assets/player/player-v2.png'] || null;
 
-        // Initialise audio context (may be suspended until first user gesture)
-        initAudio();
-        // Load all audio files asynchronously — non-blocking
-        loadAllAudio().then(() => {
-            console.log('[audio] All audio loaded');
-            // Start menu BGM once assets are ready
-            updateBgm();
-        });
-
         _loadActiveProfile();
     };
 
@@ -611,6 +602,7 @@ new p5((p) => {
     // ── Keyboard ─────────────────────────────────────────────
 
     p.keyPressed = () => {
+        initAudio();
         // Resume audio context on first user gesture (browser requirement)
         resumeAudio();
 
@@ -747,6 +739,7 @@ new p5((p) => {
     };
 
     p.mousePressed = () => {
+        initAudio();
         // One-time check to resume audio on the first click
         resumeAudio();
     };
