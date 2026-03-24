@@ -259,7 +259,7 @@ export function drawTutorialPrompt(p, { onYes, onNo, fonts, assets }) {
 
     // Card background
     const cardW = 520;
-    const cardH = 280;
+    const cardH = 285;
     p.push();
     p.fill(28, 18, 10, 240);
     p.stroke(120, 80, 30);
@@ -297,14 +297,14 @@ export function drawTutorialPrompt(p, { onYes, onNo, fonts, assets }) {
         p,
         'YES, TEACH ME',
         cx - 110,
-        cy + 80,
+        cy + 95,
         onYes,
         200,
         48,
         fonts,
         assets,
     );
-    drawButton(p, 'NO THANKS', cx + 110, cy + 80, onNo, 200, 48, fonts, assets);
+    drawButton(p, 'NO THANKS', cx + 110, cy + 95, onNo, 200, 48, fonts, assets);
 }
 
 // ---------------------------------------------------------------------------

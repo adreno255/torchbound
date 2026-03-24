@@ -64,7 +64,7 @@ export function getPlayerTag(playerId) {
  * @returns {string}
  */
 export function getDisplayName(username, playerId) {
-    return `${username}#${getPlayerTag(playerId)}`;
+    return `${username} #${getPlayerTag(playerId)}`;
 }
 
 // ── Default profile factory ───────────────────────────────────────────────
