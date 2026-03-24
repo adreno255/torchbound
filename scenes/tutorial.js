@@ -117,7 +117,7 @@ export const STOP_POINTS = [
         tileValue: TUTORIAL_MARKERS.F,
         gridX: 7,
         gridY: 2,
-        title: 'Torch Power-Up',
+        title: 'Torch Boost',
         body: [
             'Collecting this doubles your torch radius for 5 seconds.',
             'Use it to scout ahead or survive a darkness trap.',

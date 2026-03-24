@@ -79,6 +79,16 @@ import {
     readProfileById,
     setActivePlayerId,
 } from './common/playerProfile.js';
+import {
+    initAudio,
+    resumeAudio,
+    loadAllAudio,
+    playBgm,
+    stopBgm,
+    playSfx,
+    setBgmVolume,
+    setSfxVolume,
+} from './common/audio.js';
 
 // ============================================================
 // Per-level asset mapping
@@ -107,6 +117,22 @@ function assetsForLevel(level) {
         tileset: 'assets/maps/map-dark-v2.png',
         traps: 'assets/traps/traps-dark.png',
     };
+}
+
+// ─────────────────────────────────────────────────────────────
+// BGM selection helpers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns the BGM key for a given level number.
+ * Tutorial and levels 1-2 → bgm_dungeon_light
+ * Levels 3-4             → bgm_dungeon_dark
+ * Level 5                → bgm_dungeon_abyss
+ */
+function bgmKeyForLevel(level) {
+    if (level >= 5) return 'bgm_dungeon_abyss';
+    if (level >= 3) return 'bgm_dungeon_dark';
+    return 'bgm_dungeon_light';
 }
 
 // ============================================================
@@ -213,11 +239,14 @@ new p5((p) => {
 
     // ── Tutorial state ────────────────────────────────────────
     let isTutorial = false;
-    // Phases:  'playing' | 'pausing' | 'card' | 'cleared' | 'gameover'
     let tutorialPhase = 'playing';
-    let activeStopPoint = null; // the StopPoint object currently shown
-    let stopPauseTimer = 0; // countdown before card appears
+    let activeStopPoint = null;
+    let stopPauseTimer = 0;
     const stopManager = createStopManager();
+
+    // ── Audio state ───────────────────────────────────────────
+    // Tracks whether we've already switched to the last-30s BGM this level
+    let last30Active = false;
 
     // ── Cursor tracking ───────────────────────────────────────
     let _anyButtonHovered = false;
@@ -247,6 +276,49 @@ new p5((p) => {
 
     function getBgTilesets() {
         return bgTilesets;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // BGM routing
+    // Centralise all "what should be playing right now" logic here.
+    // Call whenever the game state changes.
+    // ─────────────────────────────────────────────────────────
+
+    function updateBgm() {
+        switch (currentGameState) {
+            case GAME_STATE.PLAYING:
+            case GAME_STATE.PAUSED: {
+                // During the last 30 seconds switch to the urgent track
+                if (last30Active) {
+                    playBgm('bgm_last30');
+                } else {
+                    playBgm(bgmKeyForLevel(currentLevel));
+                }
+                break;
+            }
+
+            // Tutorial shares the same dungeon-light track
+            case GAME_STATE.TUTORIAL:
+                playBgm('bgm_dungeon_light');
+                break;
+
+            // All menu-like screens share the menu BGM
+            case GAME_STATE.MENU:
+            case GAME_STATE.ACCOUNTS:
+            case GAME_STATE.TUTORIAL_PROMPT:
+            case GAME_STATE.TUTORIAL_CLEARED:
+            case GAME_STATE.TUTORIAL_GAMEOVER:
+            case GAME_STATE.LEVEL_SELECT:
+            case GAME_STATE.GAMEOVER:
+            case GAME_STATE.VICTORY:
+            case GAME_STATE.GLOBAL_LEADERBOARD:
+            case GAME_STATE.ABOUT:
+                playBgm('bgm_menu');
+                break;
+
+            default:
+                break;
+        }
     }
 
     // ── p5 Preload ───────────────────────────────────────────
@@ -344,6 +416,15 @@ new p5((p) => {
         scaleFactor = getScaleFactor(p);
         powerupSheetImg = imgCache['assets/powerups/powerups.png'] || null;
         playerImg = imgCache['assets/player/player-v2.png'] || null;
+
+        // Initialise audio context (may be suspended until first user gesture)
+        initAudio();
+        // Load all audio files asynchronously — non-blocking
+        loadAllAudio().then(() => {
+            console.log('[audio] All audio loaded');
+            // Start menu BGM once assets are ready
+            updateBgm();
+        });
     };
 
     p.draw = () => {
@@ -454,6 +535,7 @@ new p5((p) => {
                         currentGameState = GAME_STATE.PLAYING;
                         timerRunning = true;
                         lastTimeStamp = p.millis();
+                        updateBgm();
                     },
                     onRetry: () => {
                         if (isTutorial) {
@@ -462,15 +544,18 @@ new p5((p) => {
                             loadLevel(currentLevel);
                         }
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                         p.loop();
                     },
                     onLevels: () => {
                         isTutorial = false;
                         currentGameState = GAME_STATE.LEVEL_SELECT;
+                        updateBgm();
                     },
                     onMenu: () => {
                         isTutorial = false;
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts: getFonts(),
                     assets: getAssets(),
@@ -524,6 +609,9 @@ new p5((p) => {
     // ── Keyboard ─────────────────────────────────────────────
 
     p.keyPressed = () => {
+        // Resume audio context on first user gesture (browser requirement)
+        resumeAudio();
+
         if (currentGameState === GAME_STATE.ACCOUNTS) {
             if (p.keyCode === p.ENTER) {
                 if (accountTab === 'create') {
@@ -532,6 +620,7 @@ new p5((p) => {
                         draftName = '';
                         accountError = '';
                         currentGameState = GAME_STATE.TUTORIAL_PROMPT;
+                        updateBgm();
                     }
                 } else {
                     const trimmed = draftName.trim();
@@ -542,6 +631,7 @@ new p5((p) => {
                             draftName = '';
                             accountError = '';
                             currentGameState = GAME_STATE.MENU;
+                            updateBgm();
                         } else {
                             accountError =
                                 'No account found with that Player ID.';
@@ -551,19 +641,15 @@ new p5((p) => {
             } else if (p.keyCode === p.BACKSPACE) {
                 draftName = draftName.slice(0, -1);
                 accountError = '';
+                playSfx('sfx_keypress');
             } else if (p.key.length === 1) {
                 if (!p.keyIsDown(p.CONTROL) && !p.keyIsDown(p.META)) {
                     const maxLen = accountTab === 'create' ? 12 : 24;
-                    // For the create tab, enforce allowed character set.
-                    // For the switch tab (pasting a Player ID), allow all printable ASCII
-                    // except # (Player IDs are auto-generated alphanumeric, no symbols).
-                    const allowed =
-                        accountTab === 'create'
-                            ? isAllowedNameChar(p.key)
-                            : isAllowedNameChar(p.key); // same rule applies to IDs
+                    const allowed = isAllowedNameChar(p.key);
                     if (allowed && draftName.length < maxLen) {
                         draftName += p.key;
                         accountError = '';
+                        playSfx('sfx_keypress');
                     }
                 }
             }
@@ -577,6 +663,7 @@ new p5((p) => {
             if (currentGameState === GAME_STATE.PLAYING) {
                 currentGameState = GAME_STATE.PAUSED;
                 timerRunning = false;
+                // BGM keeps playing through pause — no track change needed
             } else if (currentGameState === GAME_STATE.PAUSED) {
                 currentGameState = GAME_STATE.PLAYING;
                 timerRunning = true;
@@ -604,7 +691,6 @@ new p5((p) => {
         );
         if (!pastedText) return;
 
-        // Filter characters based on your allowed set
         let filteredText = '';
         for (let char of pastedText) {
             if (isAllowedNameChar(char)) {
@@ -616,15 +702,16 @@ new p5((p) => {
         const oldLen = draftName.length;
         draftName = (draftName + filteredText).slice(0, maxLen);
 
-        // Check if we stripped characters or hit the limit
         if (filteredText.length < pastedText.length) {
             accountError = 'Invalid characters removed from paste.';
         } else if (oldLen + filteredText.length > maxLen) {
             accountError = 'Paste truncated to character limit.';
         } else {
-            accountError = ''; // Clear error if paste was clean
+            accountError = '';
         }
 
+        // Play a single keypress sound for the paste action
+        playSfx('sfx_keypress');
         e.preventDefault();
     });
 
@@ -638,7 +725,7 @@ new p5((p) => {
                     aboutScroll.targetY + event.delta,
                 ),
             );
-            return false; // prevent page scroll
+            return false;
         }
     };
 
@@ -665,6 +752,7 @@ new p5((p) => {
         if (!LEVELS[difficulty]) return;
 
         isTutorial = false;
+        last30Active = false;
 
         const assets = assetsForLevel(difficulty);
         tilesetImg = imgCache[assets.tileset] || null;
@@ -692,7 +780,6 @@ new p5((p) => {
 
     /**
      * Loads the static tutorial level.
-     * Uses the map-light tileset and a generous 5-minute timer.
      */
     function loadTutorial() {
         isTutorial = true;
@@ -700,12 +787,11 @@ new p5((p) => {
         activeStopPoint = null;
         stopPauseTimer = 0;
         stopManager.reset();
+        last30Active = false;
 
-        // Tutorial always uses the light tileset
         tilesetImg = imgCache['assets/maps/map-light.png'] || null;
         trapSheetImg = imgCache['assets/traps/traps-light.png'] || null;
 
-        // Deep copy the static maze so trap collection mutations don't persist
         maze = TUTORIAL_MAZE.map((row) => row.slice());
         gridRows = maze.length;
         gridColumns = maze[0].length;
@@ -717,7 +803,7 @@ new p5((p) => {
         player = createPlayer();
         findStartTile(player, maze, gridRows, gridColumns);
 
-        resetTimers(300); // 5 minutes — plenty of time to read everything
+        resetTimers(300);
 
         gamePhase = GAME_PHASE.INTRO_REVEAL;
         transitionAlpha = 0;
@@ -751,10 +837,6 @@ new p5((p) => {
 
     // ── Tutorial stop-point helpers ───────────────────────────
 
-    /**
-     * Called by the tutorial card's Continue button.
-     * Resumes the timer and movement.
-     */
     function onTutorialCardContinue() {
         tutorialPhase = 'playing';
         activeStopPoint = null;
@@ -762,10 +844,6 @@ new p5((p) => {
         lastTimeStamp = p.millis();
     }
 
-    /**
-     * Triggers a stop point: freezes the game for a short beat, then
-     * shows the info card.
-     */
     function triggerStopPoint(sp) {
         stopManager.trigger(sp.id);
         activeStopPoint = sp;
@@ -774,10 +852,6 @@ new p5((p) => {
         timerRunning = false;
     }
 
-    /**
-     * Called every frame when tutorialPhase === 'pausing'.
-     * Counts down and transitions to 'card' when the pause is over.
-     */
     function tickTutorialPause(dt) {
         stopPauseTimer -= dt;
         if (stopPauseTimer <= 0) {
@@ -887,7 +961,11 @@ new p5((p) => {
             transitionAlpha = p.constrain(transitionAlpha + dt / 5000, 0, 1);
             if (transitionAlpha >= 1) {
                 fogOpacity = p.constrain(fogOpacity + dt / 5, 0, 255);
-                if (fogOpacity >= 255) gamePhase = GAME_PHASE.PLAYING;
+                if (fogOpacity >= 255) {
+                    gamePhase = GAME_PHASE.PLAYING;
+                    // BGM starts when gameplay actually begins
+                    updateBgm();
+                }
             }
         } else {
             transitionAlpha = 1;
@@ -907,7 +985,7 @@ new p5((p) => {
         // ── Tutorial pause-beat countdown ─────────────────────
         if (isTutorial && tutorialPhase === 'pausing') {
             tickTutorialPause(Math.min(p.deltaTime, 50));
-            return; // don't process anything else while pausing
+            return;
         }
 
         if (pendingGameOver) {
@@ -929,6 +1007,7 @@ new p5((p) => {
                     currentGameState = GAME_STATE.GAMEOVER;
                 }
                 timerRunning = false;
+                updateBgm();
             }
             return;
         }
@@ -979,15 +1058,18 @@ new p5((p) => {
             onDamage: (amount) => {
                 shakeTimer = SHAKE_MS;
                 hitFlashTimer = HIT_FLASH_MS;
+                playSfx('sfx_hit');
                 triggerHitAnim(player);
                 if (takeDamage(player, amount)) onPlayerDeath();
             },
             onReset: () => {
+                playSfx('sfx_fall');
                 triggerFallAnim(player);
                 pendingReset = true;
                 resetDelayTimer = FALL_ANIM_MS;
             },
             onDarkness: () => {
+                playSfx('sfx_darkness');
                 if (
                     player.animState !== 'DIM_IDLE' &&
                     player.animState !== 'DIM_WALK' &&
@@ -1023,6 +1105,19 @@ new p5((p) => {
             torchRadius,
             debugMode,
         });
+
+        // ── Powerup SFX — fire on the frame the timer goes from 0 → positive
+        const justGotTorch =
+            puResult.torchEffectTimer > 0 && torchEffectTimer === 0;
+        const justGotVision =
+            puResult.visionEffectTimer > 0 && visionEffectTimer === 0;
+        const justGotTime =
+            puResult.timeBonusTextTimer > 0 && timeBonusTextTimer === 0;
+
+        if (justGotTorch) playSfx('sfx_powerup_torch');
+        if (justGotVision) playSfx('sfx_powerup_vision');
+        if (justGotTime) playSfx('sfx_powerup_time');
+
         timeLeft = puResult.timeLeft;
         timeBonusTextTimer = puResult.timeBonusTextTimer;
         torchEffectTimer = puResult.torchEffectTimer;
@@ -1056,6 +1151,13 @@ new p5((p) => {
     function updateTimer() {
         if (!timerRunning || currentGameState !== GAME_STATE.PLAYING) return;
         timeLeft = Math.max(0, timeLeft - p.deltaTime / 1000);
+
+        // ── Last-30-second BGM switch ─────────────────────────
+        if (!last30Active && timeLeft <= 30 && timeLeft > 0) {
+            last30Active = true;
+            playBgm('bgm_last30');
+        }
+
         if (timeLeft <= 0) onTimeUp();
     }
 
@@ -1070,6 +1172,7 @@ new p5((p) => {
         timerRunning = false;
         pendingGameOver = true;
         gameOverDelayTimer = 12 * 200;
+        playSfx('sfx_gameover');
     }
 
     function onTimeUp() {
@@ -1083,6 +1186,7 @@ new p5((p) => {
         timerRunning = false;
         pendingGameOver = true;
         gameOverDelayTimer = 12 * 200 + 400;
+        playSfx('sfx_gameover');
     }
 
     function checkExitReached() {
@@ -1106,6 +1210,8 @@ new p5((p) => {
         victoryMessage = `Final Score: ${score}`;
         currentGameState = GAME_STATE.VICTORY;
         timerRunning = false;
+        playSfx('sfx_victory');
+        updateBgm();
     }
 
     function onTutorialComplete() {
@@ -1113,6 +1219,8 @@ new p5((p) => {
         timerRunning = false;
         isTutorial = false;
         currentGameState = GAME_STATE.TUTORIAL_CLEARED;
+        playSfx('sfx_victory');
+        updateBgm();
     }
 
     // ── Screen Routing ────────────────────────────────────────
@@ -1122,6 +1230,7 @@ new p5((p) => {
         accountTab = tab;
         accountError = '';
         currentGameState = GAME_STATE.ACCOUNTS;
+        updateBgm();
     }
 
     function drawScreen() {
@@ -1135,11 +1244,13 @@ new p5((p) => {
                         markTutorialDone();
                         loadTutorial();
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                         p.loop();
                     },
                     onNo: () => {
                         markTutorialDone();
                         currentGameState = GAME_STATE.LEVEL_SELECT;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1150,6 +1261,7 @@ new p5((p) => {
                 // Legacy path — immediately redirect to real tutorial
                 loadTutorial();
                 currentGameState = GAME_STATE.PLAYING;
+                updateBgm();
                 p.loop();
                 break;
 
@@ -1157,9 +1269,11 @@ new p5((p) => {
                 drawTutorialCleared(p, {
                     onLevels: () => {
                         currentGameState = GAME_STATE.LEVEL_SELECT;
+                        updateBgm();
                     },
                     onMenu: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1172,10 +1286,12 @@ new p5((p) => {
                     onRetry: () => {
                         loadTutorial();
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                         p.loop();
                     },
                     onMenu: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1190,21 +1306,25 @@ new p5((p) => {
                             openAccounts('create');
                         } else {
                             currentGameState = GAME_STATE.LEVEL_SELECT;
+                            updateBgm();
                         }
                     },
                     onTutorial: () => {
                         loadTutorial();
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                         p.loop();
                     },
                     onAccounts: () => openAccounts('create'),
                     onLeaderboard: () => {
                         currentGameState = GAME_STATE.GLOBAL_LEADERBOARD;
+                        updateBgm();
                     },
                     onAbout: () => {
                         aboutScroll.y = 0;
                         aboutScroll.targetY = 0;
                         currentGameState = GAME_STATE.ABOUT;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1225,6 +1345,7 @@ new p5((p) => {
                         draftName = '';
                         accountError = '';
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1240,9 +1361,11 @@ new p5((p) => {
                         currentLevel = i;
                         loadLevel(i);
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                     },
                     onBack: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1255,13 +1378,16 @@ new p5((p) => {
                     onRetry: () => {
                         loadLevel(currentLevel);
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                         p.loop();
                     },
                     onLevels: () => {
                         currentGameState = GAME_STATE.LEVEL_SELECT;
+                        updateBgm();
                     },
                     onMenu: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1285,14 +1411,17 @@ new p5((p) => {
                         } else {
                             currentGameState = GAME_STATE.LEVEL_SELECT;
                         }
+                        updateBgm();
                     },
                     onRetry: () => {
                         loadLevel(currentLevel);
                         currentGameState = GAME_STATE.PLAYING;
+                        updateBgm();
                         p.loop();
                     },
                     onMenu: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
@@ -1312,15 +1441,18 @@ new p5((p) => {
                     },
                     onBack: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     fonts,
                     assets,
                 });
                 break;
+
             case GAME_STATE.ABOUT:
                 drawAbout(p, {
                     onBack: () => {
                         currentGameState = GAME_STATE.MENU;
+                        updateBgm();
                     },
                     scrollState: aboutScroll,
                     fonts,
