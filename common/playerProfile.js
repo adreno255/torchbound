@@ -1,5 +1,5 @@
 // ============================================================
-// playerProfile.js
+// common/playerProfile.js
 // Unified per-player profile — now backed by Supabase.
 //
 // Public API is identical to the localStorage version so main.js

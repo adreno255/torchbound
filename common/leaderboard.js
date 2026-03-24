@@ -1,5 +1,5 @@
 // ============================================================
-// leaderboard.js
+// common/leaderboard.js
 // Leaderboard reads and writes — now backed by Supabase.
 //
 // Public API is identical to the localStorage version.

@@ -1,54 +1,82 @@
 // ============================================================
-// utils.js
+// common/utils.js
 // Shared utility functions used across multiple modules.
+//
+// Contains:
+//   getScaleFactor()        — responsive canvas scaling
+//   calculateScore()        — HP + time scoring formula
+//   drawButton()            — 3-slice pixel-art button renderer
+//   _drawPixelButtonSlices() — internal slice renderer (also used by menu.js)
 // ============================================================
 
 import { BASE_WIDTH, BASE_HEIGHT } from './constants.js';
 
+// ── Responsive scaling ────────────────────────────────────────────────────
+
 /**
- * Calculates the scale factor to fit the base canvas into the window
- * while preserving aspect ratio.
+ * Calculates the uniform scale factor that fits the logical base canvas
+ * (BASE_WIDTH × BASE_HEIGHT) into the current browser window while
+ * preserving the aspect ratio.
+ *
+ * Used by applyCamera() and window-resize handlers in main.js to keep
+ * all coordinate math consistent regardless of screen size.
  *
  * @param {object} p - p5 instance
- * @returns {number} scaleFactor
+ * @returns {number} scaleFactor — multiply logical coords by this to get screen coords
  */
 export function getScaleFactor(p) {
     return Math.min(p.windowWidth / BASE_WIDTH, p.windowHeight / BASE_HEIGHT);
 }
 
+// ── Scoring ───────────────────────────────────────────────────────────────
+
 /**
- * Calculates a score from remaining HP and time.
+ * Calculates the player's score at the end of a level.
  *
- * @param {number} hp
- * @param {number} timeLeft
- * @returns {number}
+ * Formula:
+ *   score = floor(hp) × 10  +  max(0, floor(timeLeft)) × 20
+ *
+ * Rationale: remaining HP rewards survival; remaining time rewards speed.
+ * Both are floored so fractional values don't produce misleading numbers.
+ *
+ * @param {number} hp       - remaining hit points (0–100)
+ * @param {number} timeLeft - remaining countdown seconds (≥ 0)
+ * @returns {number} integer score
  */
 export function calculateScore(hp, timeLeft) {
     return Math.floor(hp) * 10 + Math.max(0, Math.floor(timeLeft)) * 20;
 }
 
 // ── Button tileset constants ──────────────────────────────────────────────
-// Sheet layout: 3 cols × 2 rows, each cell 16×16px → 48×32px
-//   Col 0 = left cap, Col 1 = mid tile, Col 2 = right cap
-//   Row 0 = normal (srcY = 0),  Row 1 = hover (srcY = 16)
-const BTN_TILE = 16;
+// Source sheet layout (button-tiles.png): 3 cols × 2 rows, each cell 16×16px
+//   Col 0 = left cap     Col 1 = mid tile     Col 2 = right cap
+//   Row 0 = normal state (srcY = 0)
+//   Row 1 = hover  state (srcY = 16)
+const BTN_TILE = 16; // source tile size in px
+
+// ── Button renderer ───────────────────────────────────────────────────────
 
 /**
- * Draws a pixel-art 3-slice button using button-tiles.png.
- * Falls back to a plain filled rect if the tileset hasn't loaded.
+ * Draws a pixel-art 3-slice button using the button-tiles spritesheet.
  *
- * Also calls p._registerButtonHover() when hovered so main.js can
- * flip the CSS cursor to 'pointer' for that frame.
+ * The button is centred on (x, y). Hover detection uses raw p.mouseX/Y
+ * (screen space), so this must be called AFTER p.resetMatrix() or from
+ * a p.push/pop block that has not applied a world transform.
  *
- * @param {object}   p
- * @param {string}   label
- * @param {number}   x        - center X
- * @param {number}   y        - center Y
- * @param {function} onClick
- * @param {number}   [btnW=300]
- * @param {number}   [btnH=50]
- * @param {object}   [fonts]  - { heading, body }
- * @param {object}   [assets] - { buttonTiles: p5.Image }
+ * Also calls p._registerButtonHover() when hovered, which signals
+ * main.js to flip the CSS cursor to 'pointer' for that frame.
+ *
+ * Falls back to a plain filled rect if the tileset image hasn't loaded.
+ *
+ * @param {object}     p
+ * @param {string}     label        - button text
+ * @param {number}     x            - centre X in screen space
+ * @param {number}     y            - centre Y in screen space
+ * @param {function}   onClick      - fired once when the button is clicked
+ * @param {number}     [btnW=300]   - total button width in px
+ * @param {number}     [btnH=50]    - total button height in px
+ * @param {object}     [fonts]      - { heading, body } p5.Font objects
+ * @param {object}     [assets]     - { buttonTiles: p5.Image }
  */
 export function drawButton(
     p,
@@ -77,14 +105,14 @@ export function drawButton(
     if (img) {
         _drawPixelButtonSlices(p, img, x, y, btnW, btnH, isHovered);
     } else {
-        // Fallback plain rect
+        // Fallback: plain rounded rectangle
         p.fill(isHovered ? 100 : 50);
         p.rectMode(p.CENTER);
         p.noStroke();
         p.rect(x, y, btnW, btnH, 5);
     }
 
-    // Label
+    // Label — drawn on top of the button background
     p.noStroke();
     p.fill(255);
     p.textSize(20);
@@ -92,6 +120,7 @@ export function drawButton(
     if (fonts?.body) p.textFont(fonts.body);
     p.text(label, x, y);
 
+    // Fire onClick once per click, then suppress p.mouseIsPressed for this frame
     if (isHovered && p.mouseIsPressed) {
         p.mouseIsPressed = false;
         onClick();
@@ -99,31 +128,41 @@ export function drawButton(
 }
 
 /**
- * Internal helper — renders the 3-slice pixel button slices.
- * Exported so menu.js can call it for the locked-level button (with tint).
+ * Internal helper — renders the three sliced sections of the pixel button.
+ *
+ * Exported so that menu.js can reuse it for the locked-level button
+ * (which needs custom tinting and no onClick handler).
+ *
+ * Slice breakdown:
+ *   left cap  : BTN_TILE × BTN_TILE source → (capW × btnH) destination
+ *   mid tile  : stretched between the two caps
+ *   right cap : mirror of left cap
+ *
+ * The cap width equals the button height so the caps always appear square.
  *
  * @param {object}   p
- * @param {p5.Image} img
- * @param {number}   cx
- * @param {number}   cy
- * @param {number}   btnW
- * @param {number}   btnH
- * @param {boolean}  hover
+ * @param {p5.Image} img     - button-tiles.png
+ * @param {number}   cx      - button centre X
+ * @param {number}   cy      - button centre Y
+ * @param {number}   btnW    - total button width
+ * @param {number}   btnH    - total button height
+ * @param {boolean}  hover   - true = use hover row in source sheet
  */
 export function _drawPixelButtonSlices(p, img, cx, cy, btnW, btnH, hover) {
+    // Row offset in the source sheet (normal = row 0, hover = row 1)
     const srcRow = hover ? BTN_TILE : 0;
-    const capW = btnH; // cap = square (width = height)
+    const capW = btnH; // cap width = button height (keeps caps square)
     const midW = btnW - capW * 2;
-    const x0 = cx - btnW / 2;
-    const y0 = cy - btnH / 2;
+    const x0 = cx - btnW / 2; // left edge
+    const y0 = cy - btnH / 2; // top edge
 
     p.noStroke();
     p.imageMode(p.CORNER);
 
-    // Left cap
+    // Left cap — source col 0
     p.image(img, x0, y0, capW, btnH, 0, srcRow, BTN_TILE, BTN_TILE);
 
-    // Middle — stretched
+    // Middle — source col 1, stretched to fill remaining width
     if (midW > 0) {
         p.image(
             img,
@@ -138,7 +177,7 @@ export function _drawPixelButtonSlices(p, img, cx, cy, btnW, btnH, hover) {
         );
     }
 
-    // Right cap
+    // Right cap — source col 2
     p.image(
         img,
         x0 + btnW - capW,

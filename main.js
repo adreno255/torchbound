@@ -1107,10 +1107,6 @@ new p5((p) => {
         darknessEffectTimer = trapResult.darknessEffectTimer;
         torchRadius = trapResult.torchRadius;
 
-        // Fire sfx_darkness only on the frame the darkness effect newly begins
-        // (timer was 0 before the trap check, positive after it).
-        // This prevents the sound repeating every frame the player stands on
-        // an active darkness trap.
         if (prevDarknessTimer <= 0 && darknessEffectTimer > 0) {
             playSfx('sfx_darkness');
         }
