@@ -187,46 +187,77 @@ export function drawMainMenu(
         assets,
     },
 ) {
-    p.textAlign(p.CENTER, p.CENTER);
+    const cx = p.windowWidth / 2;
+    const cy = p.windowHeight / 2;
+    const t = p.millis();
+
+    drawScreenVignette(p);
+
+    // ── Title ─────────────────────────────────────────────────────────────
+    const titleBob = Math.sin(t * 0.0008) * 5;
+    const titleY = cy - 215 + titleBob;
+
+    const flickerA = 0.5 + 0.5 * Math.sin(t * 0.0023);
+    const flickerB = 0.5 + 0.5 * Math.sin(t * 0.0031 + 1.2);
+    const glowIntensity = 0.7 + flickerA * 0.2 + flickerB * 0.1;
 
     if (fonts?.heading) p.textFont(fonts.heading);
-    p.textSize(200);
-    p.fill(80);
-    p.text('Torchbound', p.windowWidth / 2, p.windowHeight / 2 - 240);
-    p.fill(255);
-    p.text('Torchbound', p.windowWidth / 2, p.windowHeight / 2 - 250);
+    p.textAlign(p.CENTER, p.CENTER);
+    p.noStroke();
 
-    // Only show "Logged in as:" if a player profile exists
+    // Glow layers — each pass is slightly larger and more transparent,
+    // stacking outward from the letters to simulate per-letter bloom
+    const glowLayers = [
+        { size: 200, alpha: 80 },
+        { size: 204, alpha: 55 },
+        { size: 210, alpha: 35 },
+        { size: 218, alpha: 20 },
+        { size: 228, alpha: 12 },
+        { size: 242, alpha: 6 },
+    ];
+
+    for (const layer of glowLayers) {
+        p.textSize(layer.size);
+        p.fill(220, 120, 20, layer.alpha * glowIntensity);
+        p.text('Torchbound', cx, titleY);
+    }
+
+    // Dark halo
+    p.textSize(196);
+    p.fill(0, 0, 0, 120);
+    p.text('Torchbound', cx + 6, titleY + 8);
+
+    // Ember underlayer
+    p.fill(160, 60, 10, 90);
+    p.text('Torchbound', cx + 2, titleY + 3);
+
+    // Main title
+    p.fill(255, 200, 100, 255);
+    p.text('Torchbound', cx, titleY);
+
+    // ── Tagline ───────────────────────────────────────────────────────────
+    if (fonts?.body) p.textFont(fonts.body);
+    p.textSize(16);
+    const tagAlpha = 140 + Math.sin(t * 0.0011 + 0.5) * 40;
+    p.fill(160, 140, 105, tagAlpha);
+    p.text('The torch fades. The maze waits.', cx, cy - 120);
+
+    // ── Logged in label ───────────────────────────────────────────────────
+    const firstBtnY = displayName ? cy + 20 : cy + 10;
+
     if (displayName) {
         if (fonts?.body) p.textFont(fonts.body);
         p.textSize(20);
         p.fill(200);
-        p.text(
-            `Logged in as: ${displayName}`,
-            p.windowWidth / 2,
-            p.windowHeight / 2 - 30,
-        );
+        p.text(`Logged in as: ${displayName}`, cx, firstBtnY - 52);
     }
 
-    const firstBtnY = displayName
-        ? p.windowHeight / 2 + 30
-        : p.windowHeight / 2 + 10;
-
-    drawButton(
-        p,
-        'PLAY',
-        p.windowWidth / 2,
-        firstBtnY,
-        onPlay,
-        300,
-        50,
-        fonts,
-        assets,
-    );
+    // ── Buttons ───────────────────────────────────────────────────────────
+    drawButton(p, 'PLAY', cx, firstBtnY, onPlay, 300, 50, fonts, assets);
     drawButton(
         p,
         'TUTORIAL',
-        p.windowWidth / 2,
+        cx,
         firstBtnY + 70,
         onTutorial,
         300,
@@ -237,7 +268,7 @@ export function drawMainMenu(
     drawButton(
         p,
         'ACCOUNTS',
-        p.windowWidth / 2,
+        cx,
         firstBtnY + 140,
         onAccounts,
         300,
@@ -248,7 +279,7 @@ export function drawMainMenu(
     drawButton(
         p,
         'LEADERBOARDS',
-        p.windowWidth / 2,
+        cx,
         firstBtnY + 210,
         onLeaderboard,
         300,
@@ -259,7 +290,7 @@ export function drawMainMenu(
     drawButton(
         p,
         'ABOUT',
-        p.windowWidth / 2,
+        cx,
         firstBtnY + 280,
         onAbout,
         300,
@@ -1135,17 +1166,70 @@ export function drawLeaderboard(
     const startX = p.windowWidth / 2 - totalRowWidth / 2 + btnW / 2;
 
     views.forEach((v, i) => {
-        drawButton(
-            p,
-            labels[i],
-            startX + i * (btnW + gap),
-            200,
-            () => onViewChange(v),
-            btnW,
-            40,
-            fonts,
-            assets,
-        );
+        const isActive = leaderboardView === v;
+        const cx2 = startX + i * (btnW + gap);
+        const cy2 = 200;
+        const bh = 40;
+
+        const hovered =
+            p.mouseX > cx2 - btnW / 2 &&
+            p.mouseX < cx2 + btnW / 2 &&
+            p.mouseY > cy2 - bh / 2 &&
+            p.mouseY < cy2 + bh / 2;
+
+        if (hovered && typeof p._registerButtonHover === 'function') {
+            p._registerButtonHover();
+        }
+
+        const img = assets?.buttonTiles ?? null;
+
+        p.push();
+        if (isActive) {
+            if (img) {
+                p.tint(220, 190, 150, 255);
+                _drawPixelButtonSlices(p, img, cx2, cy2, btnW, bh, false);
+                p.noTint();
+            } else {
+                p.fill(60, 45, 25);
+                p.rectMode(p.CENTER);
+                p.noStroke();
+                p.rect(cx2, cy2, btnW, bh, 5);
+            }
+            // Subtle amber border to indicate selection
+            p.noFill();
+            p.stroke(180, 130, 50, 200);
+            p.strokeWeight(1.5);
+            p.rectMode(p.CENTER);
+            p.rect(cx2, cy2, btnW, bh, 5);
+            // Label — slightly dimmed white
+            p.noStroke();
+            if (fonts?.body) p.textFont(fonts.body);
+            p.textSize(20);
+            p.textAlign(p.CENTER, p.CENTER);
+            p.fill(245, 228, 195);
+            p.text(labels[i], cx2, cy2 + 1);
+        } else {
+            if (img) {
+                _drawPixelButtonSlices(p, img, cx2, cy2, btnW, bh, hovered);
+            } else {
+                p.fill(hovered ? 100 : 50);
+                p.rectMode(p.CENTER);
+                p.noStroke();
+                p.rect(cx2, cy2, btnW, bh, 5);
+            }
+            p.noStroke();
+            if (fonts?.body) p.textFont(fonts.body);
+            p.textSize(20);
+            p.textAlign(p.CENTER, p.CENTER);
+            p.fill(255);
+            p.text(labels[i], cx2, cy2);
+        }
+        p.pop();
+
+        if (hovered && p.mouseIsPressed && !isActive) {
+            p.mouseIsPressed = false;
+            onViewChange(v);
+        }
     });
 
     const entryCount = data.length;
@@ -1569,4 +1653,21 @@ export function drawAbout(p, { onBack, fonts, assets, scrollState }) {
         fonts,
         assets,
     );
+}
+
+// ── Shared screen vignette ────────────────────────────────────────────────
+export function drawScreenVignette(p) {
+    const steps = 18;
+    for (let i = 0; i < steps; i++) {
+        const frac = 1 - i / steps;
+        const a = frac * frac * 120;
+        const eW = (p.windowWidth * 0.32 * i) / steps;
+        const eH = (p.windowHeight * 0.32 * i) / steps;
+        p.noStroke();
+        p.fill(0, 0, 0, a);
+        p.rect(0, 0, eW, p.windowHeight);
+        p.rect(p.windowWidth - eW, 0, eW, p.windowHeight);
+        p.rect(0, 0, p.windowWidth, eH);
+        p.rect(0, p.windowHeight - eH, p.windowWidth, eH);
+    }
 }

@@ -46,6 +46,7 @@ import {
     drawPlayerIdOverlay,
     isAllowedNameChar,
     drawAbout,
+    drawScreenVignette,
 } from './scenes/menu.js';
 import {
     TUTORIAL_MAZE,
@@ -533,6 +534,7 @@ new p5((p) => {
                     tilesets: getBgTilesets(),
                 });
                 p.push();
+                drawScreenVignette(p);
                 drawPauseMenu(p, {
                     onResume: () => {
                         currentGameState = GAME_STATE.PLAYING;
@@ -808,6 +810,7 @@ new p5((p) => {
      */
     function loadTutorial() {
         isTutorial = true;
+        currentLevel = 1;
         tutorialPhase = 'playing';
         activeStopPoint = null;
         stopPauseTimer = 0;
@@ -1285,6 +1288,7 @@ new p5((p) => {
 
         switch (currentGameState) {
             case GAME_STATE.TUTORIAL_PROMPT:
+                drawScreenVignette(p);
                 drawTutorialPrompt(p, {
                     onYes: () => {
                         markTutorialDone();
@@ -1312,6 +1316,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.TUTORIAL_CLEARED:
+                drawScreenVignette(p);
                 drawTutorialCleared(p, {
                     onLevels: () => {
                         currentGameState = GAME_STATE.LEVEL_SELECT;
@@ -1327,6 +1332,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.TUTORIAL_GAMEOVER:
+                drawScreenVignette(p);
                 drawTutorialGameOver(p, {
                     lossReason,
                     onRetry: () => {
@@ -1380,6 +1386,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.ACCOUNTS:
+                drawScreenVignette(p);
                 drawAccountScreen(p, {
                     draftName,
                     accountTab,
@@ -1402,6 +1409,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.LEVEL_SELECT:
+                drawScreenVignette(p);
                 drawLevelSelect(p, {
                     levels: LEVELS,
                     maxUnlockedLevel: getMaxUnlockedLevel(),
@@ -1422,6 +1430,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.GAMEOVER:
+                drawScreenVignette(p);
                 drawGameOver(p, {
                     lossReason,
                     onRetry: () => {
@@ -1444,6 +1453,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.VICTORY:
+                drawScreenVignette(p);
                 drawVictory(p, {
                     victoryMessage,
                     currentLevel,
@@ -1480,6 +1490,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.GLOBAL_LEADERBOARD:
+                drawScreenVignette(p);
                 drawLeaderboard(p, {
                     displayName: getActiveDisplayName() ?? '',
                     leaderboardView,
@@ -1498,6 +1509,7 @@ new p5((p) => {
                 break;
 
             case GAME_STATE.ABOUT:
+                drawScreenVignette(p);
                 drawAbout(p, {
                     onBack: () => {
                         currentGameState = GAME_STATE.MENU;
